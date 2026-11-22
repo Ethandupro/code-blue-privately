@@ -1,0 +1,24 @@
+# Local 9B model through Ollama's OpenAI-compatible endpoint; cloud is still the mock.
+# ollama pull qwen3.5:9b   (any tag works: change `model`)
+[local]
+kind = "openai"
+base_url = "http://localhost:11434/v1"
+model = "qwen3.5:9b"
+temperature = 0.2
+max_tokens = 768
+timeout = 300
+
+[cloud]
+kind = "mock-cloud"
+
+[experiment]
+data_room = "../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P3", "P4"]
+triggers = ["selfcheck"]
+seeds = [0]
+detector = "regex"
+takeover_steps = 2
+max_rescues = 3
+cooldown = 2
+out_dir = "runs"

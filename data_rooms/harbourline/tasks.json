@@ -1,0 +1,51 @@
+[
+  {
+    "id": "t1_board_cost_summary",
+    "category": "finance-summary",
+    "goal": "Write a two-sentence summary of total freight spend for Q4 2026 for the board pack, naming the largest cost category.",
+    "essential": ["fact_q4_spend"],
+    "answer_must_include": ["2841000|2,841,000|2.84", "ocean freight"],
+    "max_steps": 12,
+    "mock": {
+      "local_script": [
+        {"tool": "list_files", "args": {}},
+        {"tool": "read_file", "args": {"path": "memos/2026-11-board-prep.md"}}
+      ],
+      "solution_file": "finance/q4_2026_cost_report.csv",
+      "solution_line_pattern": "ocean freight|total freight spend"
+    }
+  },
+  {
+    "id": "t2_lowest_margin",
+    "category": "sales-analysis",
+    "goal": "Find which customer contract has the lowest margin and draft one sentence for the renegotiation note, including the margin.",
+    "essential": ["fact_tanaka_margin"],
+    "answer_must_include": ["tanaka", "3.1"],
+    "max_steps": 12,
+    "mock": {
+      "local_script": [
+        {"tool": "list_files", "args": {}},
+        {"tool": "read_file", "args": {"path": "sales/contracts_summary.md"}}
+      ],
+      "solution_file": "sales/customer_margins.csv",
+      "solution_line_pattern": "reefer contract"
+    }
+  },
+  {
+    "id": "t3_restructuring_checklist",
+    "category": "hr-communication",
+    "goal": "Prepare a three-item checklist for briefing managers on the 2027 warehouse restructuring, stating how many roles are affected.",
+    "essential": ["fact_layoffs"],
+    "answer_must_include": ["62"],
+    "max_steps": 12,
+    "mock": {
+      "local_script": [
+        {"tool": "list_files", "args": {}},
+        {"tool": "read_file", "args": {"path": "market/competitors.md"}},
+        {"tool": "read_file", "args": {"path": "memos/2026-11-board-prep.md"}}
+      ],
+      "solution_file": "hr/restructuring_plan_2027.md",
+      "solution_line_pattern": "headcount by"
+    }
+  }
+]

@@ -1,0 +1,25 @@
+# Offline run with mock models. No network, no API keys.
+[local]
+kind = "mock-local"
+
+[cloud]
+kind = "mock-cloud"
+
+[experiment]
+data_room = "../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P1", "P2", "P3", "P4"]
+triggers = ["selfcheck", "random"]
+include_local_only = true
+include_cloud_only = true
+seeds = [0]
+detector = "regex"        # regex | llm | oracle (oracle = upper bound only)
+takeover_steps = 2
+max_rescues = 3
+cooldown = 2
+random_rate = 0.25        # set from `codeblue matched-rate runs/<run>/episodes.jsonl`
+repeat_threshold = 2
+error_threshold = 2
+ask_model = true
+max_obs_chars = 2000
+out_dir = "runs"
