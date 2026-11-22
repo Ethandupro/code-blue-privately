@@ -1,0 +1,36 @@
+# Local 9B model served by vLLM on an Azure GPU VM (scripts/azure/serve_9b.sh), reached through an SSH tunnel
+# (scripts/azure/tunnel.sh) so the harness sees it at localhost. The cloud is still the mock: swap [cloud] for the
+# block in configs/vllm-cloud.toml when you are ready to pay for real rescues.
+#
+#   export CODEBLUE_LOCAL_API_KEY=$(ssh <vm> cat ~/.codeblue/vllm_api_key)
+#   bash scripts/azure/tunnel.sh <vm>          # in another terminal
+#   python -m codeblue ping --config configs/azure-9b.toml
+#   python -m codeblue run  --config configs/azure-9b.toml
+#
+# The VM counts as the company's own hardware in this study: everything sent to it goes to local_log.jsonl and is
+# never scanned as cloud exposure. The harness refuses a [local] base_url that is not loopback or private.
+[local]
+kind = "openai"
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen3.5-9B"                    # must match the server's --served-model-name
+api_key_env = "CODEBLUE_LOCAL_API_KEY"       # the server's VLLM_API_KEY; never write the key in this file
+temperature = 0.2
+max_tokens = 768
+timeout = 300
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[cloud]
+kind = "mock-cloud"
+
+[experiment]
+data_room = "../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P1", "P2", "P3", "P4"]
+triggers = ["selfcheck"]
+include_local_only = true
+seeds = [0]
+detector = "regex"
+takeover_steps = 2
+max_rescues = 3
+cooldown = 2
+out_dir = "runs"

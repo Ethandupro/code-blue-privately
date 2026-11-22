@@ -10,6 +10,7 @@ from pathlib import Path
 from statistics import mean
 
 from codeblue.config import make_model
+from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
 from codeblue.detect import make_detector
 from codeblue.gateway import CloudGateway
@@ -31,6 +32,7 @@ def conditions(exp: dict) -> list[tuple[str | None, str]]:
 
 
 def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = False) -> Path:
+    check_local_section(cfg.get("local", {}), cfg.get("cloud"))
     exp = cfg.get("experiment", {})
     base = Path(cfg.get("_dir", "."))
     room_path = Path(exp.get("data_room", "data_rooms/harbourline"))
