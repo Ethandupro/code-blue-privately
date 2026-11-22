@@ -1,4 +1,4 @@
-"""Command line: run, scan, proxy, matched-rate."""
+"""Command line: run, ping, scan, proxy, matched-rate."""
 
 from __future__ import annotations
 
@@ -14,6 +14,10 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="run an experiment grid from a TOML config")
     r.add_argument("--config", default="configs/mock.toml")
     r.add_argument("--out", default=None, help="output folder (default runs/<timestamp>)")
+
+    g = sub.add_parser("ping", help="check the [local] model endpoint (e.g. a vLLM server through an SSH tunnel)")
+    g.add_argument("--config", required=True)
+    g.add_argument("--timeout", type=float, default=60)
 
     s = sub.add_parser("scan", help="scan a cloud log for secrets")
     s.add_argument("log")
@@ -35,7 +39,31 @@ def main(argv: list[str] | None = None) -> int:
         from codeblue.config import load_config
         from codeblue.runner import run_experiment
 
-        run_experiment(load_config(a.config), a.out)
+        try:
+            run_experiment(load_config(a.config), a.out)
+        except ValueError as e:
+            if "[local]" not in str(e):
+                raise
+            print(f"FAIL: {e}")
+            return 1
+    elif a.cmd == "ping":
+        from codeblue.config import load_config
+        from codeblue.endpoints import check_local_section, ping_local
+
+        cfg = load_config(a.config)
+        local = cfg.get("local", {})
+        try:
+            check_local_section(local, cfg.get("cloud"))
+            res = ping_local(local, a.timeout)
+        except (RuntimeError, ValueError) as e:
+            print(f"FAIL: {e}")
+            return 1
+        print(f"endpoint {local['base_url']} serves: {', '.join(res['models']) or '(nothing)'}")
+        if not res["model_listed"]:
+            print(f"FAIL: config asks for {local['model']!r}, which the server does not list")
+            return 1
+        print(f"reply in {res['secs']} s: {res['reply']!r}")
+        print("OK: local traffic goes to local_log.jsonl only; it is never scanned as cloud exposure")
     elif a.cmd == "scan":
         from codeblue.dataroom import load_data_room
         from codeblue.gateway import read_cloud_requests

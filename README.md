@@ -12,7 +12,7 @@ real models plug in through any OpenAI-compatible endpoint.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies
-pytest -q                             # 31 tests
+pytest -q                             # 47 tests
 python -m codeblue run --config configs/mock.toml
 ```
 
@@ -109,6 +109,22 @@ The local model is just config. For a 9B model on a laptop or a single GPU throu
 ollama pull qwen3.5:9b
 python -m codeblue run --config configs/ollama-9b.toml
 ```
+
+**On an Azure GPU VM** (or any GPU box you can SSH into): serve the model there with vLLM and reach it
+through an SSH tunnel, so it never needs a public port. Full steps, memory settings for a shared GPU,
+and troubleshooting are in [docs/AZURE.md](docs/AZURE.md).
+
+```bash
+bash scripts/azure/serve_9b.sh                                      # on the VM, inside tmux
+export CODEBLUE_LOCAL_API_KEY=$(ssh <vm> cat ~/.codeblue/vllm_api_key)  # on your laptop
+bash scripts/azure/tunnel.sh <vm>                                   # leave running
+python -m codeblue ping --config configs/azure-9b.toml              # checks the endpoint, key and model name
+python -m codeblue run  --config configs/azure-9b.toml
+```
+
+The harness refuses a `[local]` `base_url` that is not loopback or a private IP, and refuses `[local]`
+and `[cloud]` with the same endpoint, so local traffic stays in `local_log.jsonl` and never mixes
+with the cloud log.
 
 Change `model` to any tag Ollama or vLLM serves. `configs/vllm-cloud.toml` is the template for a
 real run (Gemma 4 26B on vLLM, any OpenAI-compatible cloud API with the key in an environment
