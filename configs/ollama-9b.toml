@@ -14,11 +14,12 @@ kind = "mock-cloud"
 [experiment]
 data_room = "../data_rooms/harbourline"
 tasks = ["all"]
-packets = ["P0", "P3", "P4"]
+packets = ["P0", "P3"]        # the main comparison (local-only is added automatically)
 triggers = ["selfcheck"]
+include_local_only = true
 seeds = [0]
 detector = "regex"
 takeover_steps = 2
-max_rescues = 3
-cooldown = 2
+max_steps = 12
+# No rescue cap or cooldown: rescues are measured. For a capped sensitivity run: max_rescues = 3, cooldown = 2.
 out_dir = "runs"

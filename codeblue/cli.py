@@ -1,4 +1,4 @@
-"""Command line: run, ping, scan, proxy, matched-rate."""
+"""Command line: run, claim, ping, scan; proxy and matched-rate are optional extras."""
 
 from __future__ import annotations
 
@@ -15,6 +15,11 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--config", default="configs/mock.toml")
     r.add_argument("--out", default=None, help="output folder (default runs/<timestamp>)")
 
+    c = sub.add_parser("claim", help="test the main claim (P3 vs P0) on one or more run folders, pooled")
+    c.add_argument("runs", nargs="+", help="run folders (each holds episodes.jsonl and leakage.json)")
+    c.add_argument("--baseline", default="P0")
+    c.add_argument("--method", default="P3")
+
     g = sub.add_parser("ping", help="check the [local] model endpoint (e.g. a vLLM server through an SSH tunnel)")
     g.add_argument("--config", required=True)
     g.add_argument("--cloud", action="store_true",
@@ -26,14 +31,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--room", default="data_rooms/harbourline")
     s.add_argument("--task", default=None, help="task id to use when the log has no task ids")
 
-    p = sub.add_parser("proxy", help="HTTP logging proxy for cloud traffic from external harnesses")
+    p = sub.add_parser("proxy", help="(optional) HTTP logging proxy for cloud traffic from external harnesses")
     p.add_argument("--upstream", required=True, help="e.g. https://openrouter.ai/api/v1")
     p.add_argument("--log", default="runs/proxy/cloud_log.jsonl")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--api-key-env", default=None, help="env var holding the upstream API key")
 
-    m = sub.add_parser("matched-rate", help="random-trigger rate that matches the self-check rate")
+    m = sub.add_parser("matched-rate", help="(optional) random-trigger rate that matches the self-check rate")
     m.add_argument("episodes", help="episodes.jsonl from a run")
 
     a = ap.parse_args(argv)
@@ -48,6 +53,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise
             print(f"FAIL: {e}")
             return 1
+    elif a.cmd == "claim":
+        from codeblue.claim import evaluate, load_runs, print_claim
+
+        res = evaluate(*load_runs(a.runs), {"baseline": a.baseline, "method": a.method})
+        print_claim(res)
+        print(json.dumps(res, indent=2))
     elif a.cmd == "ping":
         from codeblue.config import load_config
         from codeblue.endpoints import check_local_section, ping_local
@@ -82,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         mapping = {e: a.task for e in eps} if a.task else None
         print(json.dumps(scan_log(room, Path(a.log), mapping), indent=2))
     elif a.cmd == "proxy":
-        from codeblue.proxy_server import make_server
+        from codeblue.optional.proxy_server import make_server
 
         srv = make_server(a.upstream, a.log, a.host, a.port, a.api_key_env)
         print(f"logging cloud proxy on http://{a.host}:{a.port}/v1 -> {a.upstream}; log: {a.log}")
@@ -91,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             pass
     elif a.cmd == "matched-rate":
-        from codeblue.runner import matched_rate
+        from codeblue.optional.triggers_extra import matched_rate
 
         print(f"{matched_rate(a.episodes):.4f}")
     return 0

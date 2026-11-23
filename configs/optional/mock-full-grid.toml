@@ -1,0 +1,22 @@
+# PARKED: the old full grid (all packets, random control, cloud-only, capped rescues), with mock models.
+# Not part of the main claim; kept so the parked code still runs. See optional/README.md.
+[local]
+kind = "mock-local"
+
+[cloud]
+kind = "mock-cloud"
+
+[experiment]
+data_room = "../../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P1", "P2", "P3", "P4", "P2h", "P3h"]
+triggers = ["selfcheck", "random"]
+include_local_only = true
+include_cloud_only = true
+seeds = [0]
+detector = "regex"
+takeover_steps = 2
+max_rescues = 3           # capped sensitivity setting; blocked firings are logged
+cooldown = 2
+random_rate = 0.25        # set from `codeblue matched-rate runs/<run>/episodes.jsonl`
+out_dir = "runs"

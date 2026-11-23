@@ -94,9 +94,9 @@ then the same `ping` and `run` commands. Results land in `~/code-blue-privately/
 with the block in `configs/vllm-cloud.toml` and export `CODEBLUE_CLOUD_API_KEY`. The cloud key and the local key are
 different variables, the two models are logged to different files, and only the cloud log is scanned.
 
-For harnesses we don't control (EC2-Bench, TheAgentCompany), point their *local* model at the tunnel
+(Parked, not part of the main study.) For harnesses we don't control (EC2-Bench, TheAgentCompany), point their *local* model at the tunnel
 (`http://localhost:8000/v1`, key `CODEBLUE_LOCAL_API_KEY`) and only their *cloud* model at the logging proxy
-(`python -m codeblue proxy ...`, see the README).
+(`python -m codeblue proxy ...`, see `optional/README.md`).
 
 ## 5. Test setup: a 27B "cloud" model on the same VM
 

@@ -1,4 +1,4 @@
-"""Run an experiment grid, then scan the cloud log and write a summary."""
+"""Run an experiment grid, scan the cloud log, write a summary, and test the claim (claim.json)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
+from codeblue.claim import evaluate, print_claim
 from codeblue.config import make_model
 from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
@@ -31,6 +32,13 @@ def conditions(exp: dict) -> list[tuple[str | None, str]]:
     return conds
 
 
+def _cap(v) -> int | None:
+    """max_rescues from config: absent, negative or "none" means no cap."""
+    if v is None or (isinstance(v, str) and v.lower() == "none") or (isinstance(v, int) and v < 0):
+        return None
+    return int(v)
+
+
 def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = False) -> Path:
     check_local_section(cfg.get("local", {}), cfg.get("cloud"))
     exp = cfg.get("experiment", {})
@@ -51,8 +59,8 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
     detector = make_detector(exp.get("detector", "regex"), room, local)
     loop_cfg = LoopConfig(
         takeover_steps=exp.get("takeover_steps", 2),
-        max_rescues=exp.get("max_rescues", 3),
-        cooldown=exp.get("cooldown", 2),
+        max_rescues=_cap(exp.get("max_rescues")),
+        cooldown=exp.get("cooldown", 0),
         max_steps=exp.get("max_steps"),
         max_obs_chars=exp.get("max_obs_chars", 2000),
     )
@@ -68,12 +76,18 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
                                       make_builder(packet) if packet else None,
                                       make_trigger(trig, exp, seed), detector, loop_cfg)
                     res["seed"] = seed
+                    res["room"] = room.name
                     episodes.append(res)
                     f.write(json.dumps(res) + "\n")
                     if not quiet:
-                        print(f"{ep_id:55s} score={res['score']:.2f} rescues={res['n_rescues']}")
+                        extra = f" blocked={res['n_blocked_firings']}" if res["n_blocked_firings"] else ""
+                        print(f"{ep_id:55s} score={res['score']:.2f} rescues={res['n_rescues']}{extra}")
 
     summarise(room, out, episodes, quiet=quiet)
+    claim = evaluate(episodes, json.loads((out / "leakage.json").read_text()), exp.get("claim"))
+    (out / "claim.json").write_text(json.dumps(claim, indent=2))
+    if not quiet and "conditions" in claim:
+        print_claim(claim)
     return out
 
 
@@ -84,6 +98,8 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
     for ep in ep_tasks:
         leaks.setdefault(ep, {"n_calls": 0, "chars_sent": 0, "n_essential_leaked": 0, "n_bystander_leaked": 0,
                               "leaked": {}, "cumulative_curve": []})
+    for v in leaks.values():
+        v["n_secrets_total"] = len(room.secrets)
     (out / "leakage.json").write_text(json.dumps(leaks, indent=2))
 
     groups = defaultdict(list)
@@ -97,10 +113,12 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
             "mean_score": round(mean(e["score"] for e in eps), 3),
             "success_rate": round(mean(e["score"] == 1.0 for e in eps), 3),
             "mean_rescues": round(mean(e["n_rescues"] for e in eps), 2),
+            "mean_blocked_firings": round(mean(e.get("n_blocked_firings", 0) for e in eps), 2),
             "mean_cloud_calls": round(mean(l["n_calls"] for l in ls), 2),
             "mean_chars_sent": round(mean(l["chars_sent"] for l in ls), 1),
             "mean_essential_leaked": round(mean(l["n_essential_leaked"] for l in ls), 2),
             "mean_bystander_leaked": round(mean(l["n_bystander_leaked"] for l in ls), 2),
+            "mean_secrets_leaked": round(mean(l["n_essential_leaked"] + l["n_bystander_leaked"] for l in ls), 2),
         })
     with (out / "summary.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -118,14 +136,3 @@ def print_table(rows: list[dict]) -> None:
     print("\n" + "  ".join(c.ljust(widths[c]) for c in cols))
     for r in rows:
         print("  ".join(str(r[c]).ljust(widths[c]) for c in cols))
-
-
-def matched_rate(episodes_path: str | Path, trigger: str = "selfcheck") -> float:
-    """Rescues per decision point in the given trigger's episodes: the rate to give the random control."""
-    rescues = points = 0
-    for line in Path(episodes_path).read_text().splitlines():
-        e = json.loads(line)
-        if e["trigger"] == trigger:
-            rescues += e["n_rescues"]
-            points += e["decision_points"]
-    return rescues / points if points else 0.0
