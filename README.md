@@ -33,6 +33,9 @@ P2 breaks answers, P4 cannot help), but nothing here is a result about real mode
 
 ## How it fits together
 
+For a diagram of the whole pipeline (triggers, packets, cloud logging, leak scanner, the injection attack and the
+experiment suite), open [docs/system_flow.html](docs/system_flow.html) in a browser.
+
 ```
            local model (vLLM / Ollama, configurable)
                  │  act, self-check, brief, detect  ──►  local_log.jsonl
