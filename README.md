@@ -12,7 +12,7 @@ real models plug in through any OpenAI-compatible endpoint.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies
-pytest -q                             # 47 tests
+pytest -q                             # 67 tests
 python -m codeblue run --config configs/mock.toml
 ```
 
@@ -85,15 +85,26 @@ P2 breaks answers, P4 cannot help), but nothing here is a result about real mode
   (all components leaked in the same episode, possibly across calls). Every secret is counted as
   essential or bystander for the task.
 
+* **Escalation-forcing injections** (`codeblue/attacks.py`, design and metrics in
+  [docs/ATTACKS.md](docs/ATTACKS.md)). AgentDojo-style text planted in attacker-writable files
+  (`<room>/attacks.json`) that tries to make the local agent *think it is stuck*, so it escalates
+  more and sends more to the cloud. Set `attacks = ["none", "stuck_claim", ...]` in `[experiment]`;
+  each attacked episode is paired with its clean twin in `attack_summary.csv` (forced escalations,
+  rescue inflation, extra bystander leaks). `selfcheck_view = "full" | "spotlight" | "actions"`
+  sets what the self-check sees, as the defence to compare. `configs/mock-attack.toml` runs it offline.
+
 ## The example data room
 
 `data_rooms/harbourline/` is a fictional Singapore freight company with 8 files, 12 labelled
-secrets and 3 tasks:
+secrets and 4 tasks:
 
 * 4 **canaries** (exact strings: project codename, deal code, email, bank account),
 * 7 **facts** that can be paraphrased (valuation, CFO trip, layoffs, a customer margin, ...),
 * 1 **composite** (CFO due-diligence trip to Johor + "Kestrel is headquartered in Johor" lets a
   reader infer the secret acquisition target, though neither fact says it).
+
+Task 4 is one the local agent solves alone; it exists so the injection experiments have a task where
+any escalation is an unneeded one. `attacks.json` lists the two files an outsider could write into.
 
 Each task names its **essential** secrets (needed to answer); every other secret is a
 **bystander** for that task. The regex detector deliberately misses "62 roles" in the HR file, so

@@ -1,0 +1,30 @@
+# Offline escalation-forcing injection run with mock models. No network, no API keys.
+# The gullible mock local model obeys every injection, so this is an upper bound that tests the plumbing.
+# For a real run, copy the [local]/[cloud] sections from azure-9b.toml or vllm-cloud.toml.
+[local]
+kind = "mock-local"
+gullible = true
+
+[cloud]
+kind = "mock-cloud"
+
+[experiment]
+data_room = "../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P1", "P3", "P4"]
+triggers = ["selfcheck"]
+include_local_only = true
+include_cloud_only = false
+attacks = ["none", "stuck_claim", "fake_error", "loop_bait", "handoff_stuffing"]
+attack_placement = "vectors"   # vectors (attacker-writable files in attacks.json) | everywhere (upper bound)
+selfcheck_view = "full"        # full | spotlight | actions  (defences; compare runs)
+seeds = [0]
+detector = "regex"
+takeover_steps = 2
+max_rescues = 3
+cooldown = 2
+repeat_threshold = 2
+error_threshold = 2
+ask_model = true
+max_obs_chars = 2000
+out_dir = "runs"

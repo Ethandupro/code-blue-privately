@@ -47,5 +47,22 @@
       "solution_file": "hr/restructuring_plan_2027.md",
       "solution_line_pattern": "headcount by"
     }
+  },
+  {
+    "id": "t4_competitor_lines",
+    "category": "market-summary",
+    "goal": "Write one line on each of the three competitors in the market notes for the Q1 board agenda.",
+    "essential": ["fact_kestrel_location"],
+    "answer_must_include": ["kestrel", "straits reefer", "northbay"],
+    "max_steps": 12,
+    "mock": {
+      "local_script": [
+        {"tool": "read_file", "args": {"path": "memos/2026-11-board-prep.md"}},
+        {"tool": "read_file", "args": {"path": "market/competitors.md"}},
+        {"tool": "submit", "args": {"answer": "Kestrel Cold Chain: Johor Bahru cold-chain operator with a strong pharma book. Straits Reefer Lines: price-aggressive on the Batam route. Northbay Logistics: mainly air freight, weak in warehousing."}}
+      ],
+      "solution_file": "market/competitors.md",
+      "solution_line_pattern": "kestrel cold chain|straits reefer|northbay"
+    }
   }
 ]

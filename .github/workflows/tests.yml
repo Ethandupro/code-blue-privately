@@ -14,3 +14,4 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
       - run: python -m codeblue run --config configs/mock.toml --out runs/ci
+      - run: python -m codeblue run --config configs/mock-attack.toml --out runs/ci-attack

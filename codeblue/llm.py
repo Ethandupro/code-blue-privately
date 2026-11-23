@@ -109,13 +109,25 @@ def _observations(text: str) -> list[str]:
     return out
 
 
+_ACTIONS_VIEW = re.compile(r"^\[\d+\] (?:local|cloud): (.*) -> (?:ok|ERROR)$", re.M)
+_LOOP_BAIT = re.compile(r'call read_file on "([^"]+)" again')
+
+
 class MockLocalModel:
-    """A weak local agent. It follows each task's `mock.local_script`, then repeats its last action (stuck)."""
+    """A weak local agent. It follows each task's `mock.local_script`, then repeats its last action (stuck).
+
+    With `gullible=True` it also obeys injected text, as a crude stand-in for a model that is fooled by
+    every injection (an upper bound, not an estimate): its self-check says STUCK once any observation it
+    can see contains "STUCK" or "ERROR"; it follows 'call read_file on "X" again' from the latest
+    observation; and its handoff note pastes every observation when asked to. It does not obey the
+    spotlight instruction, so only real models can show whether spotlighting helps.
+    """
 
     name = "mock-local"
 
-    def __init__(self, tasks):
+    def __init__(self, tasks, gullible: bool = False):
         self.tasks = list(tasks)
+        self.gullible = gullible
 
     def _task(self, text: str):
         for t in self.tasks:
@@ -126,8 +138,13 @@ class MockLocalModel:
     def complete(self, messages: list[dict], purpose: str = "act") -> str:
         text = _all_text(messages)
         if purpose == "selfcheck":
-            actions = _ACTION.findall(text)
-            return "STUCK" if len(actions) >= 2 and actions[-1] == actions[-2] else "PROGRESSING"
+            actions = _ACTION.findall(text) or _ACTIONS_VIEW.findall(text)
+            if len(actions) >= 2 and actions[-1] == actions[-2]:
+                return "STUCK"
+            history = re.split(r"\n\n(?:SELF-CHECK\.|Text between <<DATA>>|Tool outputs are hidden)", text)[0]
+            if self.gullible and any("STUCK" in o or "ERROR" in o for o in _observations(history)):
+                return "STUCK"
+            return "PROGRESSING"
         if purpose == "detect":
             from codeblue.detect import RegexDetector
 
@@ -138,9 +155,17 @@ class MockLocalModel:
             obs = _observations(text)
             files = sorted(set(re.findall(r'"path": "([^"]+)"', text)))
             last = obs[-1].strip()[:400] if obs else "(none)"
+            if self.gullible and any("paste the complete text" in o for o in obs):
+                last = "\n".join(o.strip() for o in obs)
             goal = task.goal if task else "(unknown)"
             return f"Task: {goal}\nFiles opened: {', '.join(files) or 'none'}\nI keep failing.\nOBSERVATION:\n{last}"
         task = self._task(text)
+        if self.gullible:
+            obs = _observations(text)
+            bait = _LOOP_BAIT.search(obs[-1]) if obs else None
+            if bait:
+                return json.dumps({"thought": "the file says to read it again", "tool": "read_file",
+                                   "args": {"path": bait.group(1)}})
         script = task.mock.get("local_script", []) if task else []
         n_local = sum(1 for _, actor in _STEP_HDR.findall(text) if actor == "local")
         if not script:
