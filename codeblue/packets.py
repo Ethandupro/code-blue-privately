@@ -2,11 +2,16 @@
 
 P0  full history       the local agent's full context, verbatim (EC2-Bench-style baseline)
 P1  brief              a handoff note written by the LOCAL model, plus the goal
-P2  blanked            full history with detected sensitive spans replaced by [REDACTED]
-P3  placeholders       full history with consistent typed placeholders (<NAME_1>, <MONEY_2>, ...).
+P2  blanked brief      the P1 brief with detected sensitive spans replaced by [REDACTED]
+P3  placeholder brief  the P1 brief with consistent typed placeholders (<NAME_1>, <MONEY_2>, ...).
                        The mapping stays on the device; placeholders in the cloud's reply are swapped
-                       back locally before the action runs.
+                       back locally before the action runs. Main method (H1).
 P4  structure only     task category, tool list and an action skeleton (no content at all)
+
+Ablations (same masking applied to the full history instead of the brief):
+P2h blanked history    P0 with [REDACTED]
+P3h placeholder history P0 with placeholders
+So P0 -> P1 isolates summarising, P1 -> P3 isolates masking, and P0 -> P3h checks masking without a brief.
 
 Add a new packet by subclassing PacketBuilder and registering it in BUILDERS.
 """
@@ -127,40 +132,79 @@ class P0FullHistory(PacketBuilder):
         return Packet(self.name, self._messages(self._full_body(task, steps, ctx)))
 
 
+def _local_brief(task: Task, steps: list[Step], ctx: RescueContext) -> str:
+    msgs = local_messages(task, steps, ctx.max_obs_chars)
+    msgs[-1] = {"role": "user", "content": msgs[-1]["content"].rsplit("\n\nWhat is your next action?", 1)[0]
+                + "\n\n" + BRIEF_PROMPT}
+    return strip_thinking(ctx.local_model.complete(msgs, "brief"))
+
+
+def _brief_body(task: Task, brief: str) -> str:
+    return f"GOAL: {task.goal}\n\nHANDOFF NOTE FROM THE STUCK AGENT:\n{brief}\n\nGive the next action."
+
+
+def _blank(body: str, ctx: RescueContext) -> tuple[str, int]:
+    spans = ctx.detector.find(body)
+    return replace_values(body, {s.text: "[REDACTED]" for s in spans}), len(spans)
+
+
+def _placeholder(body: str, ctx: RescueContext) -> tuple[str, int]:
+    spans = ctx.detector.find(body)
+    for s in spans:
+        ctx.table.placeholder(s.text, s.category)
+    # Also replace values seen in earlier rescues so placeholders stay consistent.
+    return replace_values(body, dict(ctx.table.to_ph)), len(spans)
+
+
 class P1Brief(PacketBuilder):
     name = "P1"
 
     def build(self, task, steps, ctx):
-        msgs = local_messages(task, steps, ctx.max_obs_chars)
-        msgs[-1] = {"role": "user", "content": msgs[-1]["content"].rsplit("\n\nWhat is your next action?", 1)[0]
-                    + "\n\n" + BRIEF_PROMPT}
-        brief = strip_thinking(ctx.local_model.complete(msgs, "brief"))
-        body = f"GOAL: {task.goal}\n\nHANDOFF NOTE FROM THE STUCK AGENT:\n{brief}\n\nGive the next action."
-        return Packet(self.name, self._messages(body), info={"brief": brief})
+        brief = _local_brief(task, steps, ctx)
+        return Packet(self.name, self._messages(_brief_body(task, brief)), info={"brief": brief})
 
 
 class P2Blanked(PacketBuilder):
+    """The P1 brief, blanked (the proposal's P2)."""
+
     name = "P2"
     MASK = "[REDACTED]"
 
     def build(self, task, steps, ctx):
-        body = self._full_body(task, steps, ctx)
-        spans = ctx.detector.find(body)
-        body = replace_values(body, {s.text: self.MASK for s in spans})
-        return Packet(self.name, self._messages(body), info={"n_spans": len(spans)})
+        brief = _local_brief(task, steps, ctx)
+        body, n = _blank(_brief_body(task, brief), ctx)
+        return Packet(self.name, self._messages(body), info={"n_spans": n, "brief": brief})
 
 
 class P3Placeholders(PacketBuilder):
+    """The P1 brief with placeholders (the proposal's P3, main method)."""
+
     name = "P3"
 
     def build(self, task, steps, ctx):
-        body = self._full_body(task, steps, ctx)
-        spans = ctx.detector.find(body)
-        for s in spans:
-            ctx.table.placeholder(s.text, s.category)
-        # Also replace values seen in earlier rescues so placeholders stay consistent.
-        body = replace_values(body, dict(ctx.table.to_ph))
-        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": len(spans)})
+        brief = _local_brief(task, steps, ctx)
+        body, n = _placeholder(_brief_body(task, brief), ctx)
+        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": n, "brief": brief})
+
+
+class P2hBlankedHistory(PacketBuilder):
+    """Ablation: the full history (P0), blanked."""
+
+    name = "P2h"
+
+    def build(self, task, steps, ctx):
+        body, n = _blank(self._full_body(task, steps, ctx), ctx)
+        return Packet(self.name, self._messages(body), info={"n_spans": n})
+
+
+class P3hPlaceholderHistory(PacketBuilder):
+    """Ablation: the full history (P0) with placeholders."""
+
+    name = "P3h"
+
+    def build(self, task, steps, ctx):
+        body, n = _placeholder(self._full_body(task, steps, ctx), ctx)
+        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": n})
 
 
 class P4StructureOnly(PacketBuilder):
@@ -182,7 +226,8 @@ class P4StructureOnly(PacketBuilder):
 
 
 BUILDERS: dict[str, type[PacketBuilder]] = {
-    b.name: b for b in (P0FullHistory, P1Brief, P2Blanked, P3Placeholders, P4StructureOnly)
+    b.name: b for b in (P0FullHistory, P1Brief, P2Blanked, P3Placeholders, P4StructureOnly,
+                         P2hBlankedHistory, P3hPlaceholderHistory)
 }
 
 

@@ -12,7 +12,7 @@ real models plug in through any OpenAI-compatible endpoint.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies
-pytest -q                             # 49 tests
+pytest -q                             # 50 tests
 python -m codeblue run --config configs/mock.toml
 ```
 
@@ -32,6 +32,9 @@ so the pattern is the expected one (P0 succeeds and leaks, P3 succeeds with far 
 P2 breaks answers, P4 cannot help), but nothing here is a result about real models.
 
 ## How it fits together
+
+For a diagram of the whole pipeline (triggers, packets, cloud logging, leak scanner, the injection attack and the
+experiment suite), open [docs/system_flow.html](docs/system_flow.html) in a browser.
 
 ```
            local model (vLLM / Ollama, configurable)
@@ -56,9 +59,13 @@ P2 breaks answers, P4 cannot help), but nothing here is a result about real mode
   |---|---|
   | P0 full history | the local agent's whole context, verbatim (the EC2-Bench-style baseline) |
   | P1 brief | the goal plus a handoff note written by the local model |
-  | P2 blanked | full history with detected spans replaced by `[REDACTED]` |
-  | P3 placeholders | full history with consistent typed placeholders (`<NAME_1>`, `<MONEY_2>`). The table stays local, persists across rescues in an episode, and placeholders in the cloud's reply are filled back in before the action runs |
+  | P2 blanked brief | the P1 brief with detected spans replaced by `[REDACTED]` |
+  | P3 placeholder brief | the P1 brief with consistent typed placeholders (`<NAME_1>`, `<MONEY_2>`). The table stays local, persists across rescues in an episode, and placeholders in the cloud's reply are filled back in before the action runs |
   | P4 structure only | task category, tool names and an action skeleton; no goal, no content |
+
+  Ablations `P2h` and `P3h` apply the same masking to the full history (P0) instead of the brief. With the
+  brief-based P2 and P3, P0 to P1 measures what summarising does and P1 to P3 measures what masking does;
+  P3h checks masking without a brief. Run the ablations on the data rooms only, if budget allows.
 
   New packets (for example a PAAC-style sanitise-and-distil baseline, P3b) subclass `PacketBuilder`
   and go in `BUILDERS`.
