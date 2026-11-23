@@ -12,7 +12,7 @@ real models plug in through any OpenAI-compatible endpoint.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies
-pytest -q                             # 49 tests
+pytest -q                             # 50 tests
 python -m codeblue run --config configs/mock.toml
 ```
 
