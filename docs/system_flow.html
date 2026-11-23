@@ -374,16 +374,17 @@ tr.plan td { color: var(--muted); }
     <tbody>
       <tr><td>P0 Full history</td><td>Goal plus the agent's whole history, verbatim (observations cut at <code>max_obs_chars</code> = 2000)</td><td>Same</td><td>EC2-Bench-style upper bound on leakage</td><td><span class="tag">main</span></td></tr>
       <tr><td>P1 Brief</td><td>Goal plus a handoff note the <b>local</b> model writes from its own context</td><td>Goal, current state and failing step, real values</td><td>STEPGATE / Minions style</td><td><span class="tag">main</span></td></tr>
-      <tr><td>P2 Blanked</td><td>Full history with detected spans replaced by <code>[REDACTED]</code></td><td>The P1 brief, blanked</td><td>Naive redaction (H2)</td><td><span class="tag">main</span></td></tr>
-      <tr><td>P3 Placeholders</td><td>Full history with typed, consistent placeholders (<code>&lt;NAME_1&gt;</code>, <code>&lt;MONEY_2&gt;</code>). The table stays on the device, persists across rescues in an episode, and fills placeholders in the cloud's action back in before it runs</td><td>The P1 brief with placeholders (Client_A, Salary_1)</td><td>Main method (H1)</td><td><span class="tag">main</span></td></tr>
+      <tr><td>P2 Blanked brief</td><td>The P1 brief with detected spans replaced by <code>[REDACTED]</code></td><td>Same</td><td>Naive redaction (H2)</td><td><span class="tag">main</span></td></tr>
+      <tr><td>P3 Placeholder brief</td><td>The P1 brief with typed, consistent placeholders (<code>&lt;NAME_1&gt;</code>, <code>&lt;MONEY_2&gt;</code>). The table stays on the device, persists across rescues in an episode, and fills placeholders in the cloud's action back in before it runs</td><td>Same</td><td>Main method (H1)</td><td><span class="tag">main</span></td></tr>
       <tr class="plan"><td>P3b PAAC-style</td><td>Not built. Would subclass <code>PacketBuilder</code> and register in <code>BUILDERS</code></td><td>PAAC's per-step sanitise-and-distil on the brief</td><td>Published baseline to beat</td><td><span class="tag plan">planned</span></td></tr>
+      <tr><td>P2h, P3h (ablation)</td><td>The same blanking or placeholders applied to the full history (P0) instead of the brief</td><td>Not in the proposal yet</td><td>Separates masking from summarising; data rooms only, if budget allows</td><td><span class="tag">main</span></td></tr>
       <tr><td>P4 Structure only</td><td>Task category and an action skeleton: tool names, argument types and lengths, ok/error, observation length. No goal, no content</td><td>Task type, tools, error message and schema</td><td>Lower bound on leakage</td><td><span class="tag">main</span></td></tr>
     </tbody>
   </table>
   </div>
   <div class="extras">
     <div><b>Detectors for P2 and P3</b> (<code>codeblue/detect.py</code>, <code>detector = </code>): <code>regex</code> (money, percentages, dates, emails, account numbers, codes, large numbers, multi-word names, plus the room's <code>glossary.json</code>), <code>llm</code> (asks the local model, falls back to regex), <code>oracle</code> (uses the secret labels; an upper bound only, never a headline). The regex detector deliberately misses "62 roles", so P3 still leaks the layoff fact on t3.</div>
-    <div><b>Code vs proposal.</b> In the code P2 and P3 mask the full history; in the proposal they mask the P1 brief. Masking the history isolates the effect of masking from the effect of summarising; the proposal's version is cheaper. One of the two needs to be picked (or both run) before pre-registration.</div>
+    <div><b>Decided 23 Nov 2026: P2 and P3 mask the brief</b>, as in the proposal. That makes the steps clean (P0 → P1 is summarising, P1 → P3 is masking), keeps P3 comparable with PAAC's brief-based P3b, matches the budget's ~8k-token brief rescues instead of ~80k-token histories, and gives the detector less text to miss. The full-history versions stay as the P2h/P3h ablation.</div>
   </div>
 </section>
 
@@ -635,7 +636,7 @@ tr.plan td { color: var(--muted); }
     <li>PR #3 (attacks, self-check views, <code>t4</code>) and PR #5 (clearer ping errors) are not merged. This page shows PR #3's parts as if merged.</li>
     <li>GPU testing is paused while GPU 1 is busy. When it resumes, the 9B goes on port 8001 and <code>[local] base_url</code> needs changing from 8000.</li>
     <li>Not built: P3b, the early-warning and privacy-aware triggers, shadow-trigger mode, the attacker-recovery model, sensitivity tiers, the analysis and charts, benchmark adapters, and 11 of the 12 data rooms.</li>
-    <li>Whether P2 and P3 mask the full history (code) or the P1 brief (proposal).</li>
+    <li>Whether to run the P2h/P3h ablation, and on which rescuer (it costs like P0, so the mentor-hosted model fits best).</li>
     <li>From the proposal: purpose (SSEF only or a paper too), budget and who pays, mentor and GPU, team size, Fable 5.2 or a mentor-hosted model as the E3 rescuer, and the pilot gate's outcome.</li>
   </ul>
 </section>
