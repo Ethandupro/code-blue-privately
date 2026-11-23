@@ -12,16 +12,33 @@ while keeping **at least 80%** of the rescue's benefit, **and the cut still hold
 planted text in the company's files that tells the agent it is stuck and to paste everything into its
 handoff note** (an indirect prompt injection).
 
-**How.** The same tasks run three ways: local agent alone, rescued with P0, rescued with P3. Each runs
-once in clean rooms and once with the injection planted in the files an outsider could write to. Every
-cloud-bound request is logged before it is sent and scanned for secrets that were planted and labelled
-in advance. Two numbers decide the claim: *leakage cut* and *gain kept*. Everything is in
-one page: **[docs/PLAN.md](docs/PLAN.md)**. A diagram: [docs/system_flow.html](docs/system_flow.html).
+**How.** The tasks are **EC2-Bench**'s (arXiv 2610.17816): 100 long-horizon agent tasks with annotated
+sensitive values. Their delegation mode already sends the full history (P0); we patch one function in
+their cloud proxy so it can send P3 instead. The same tasks run three ways: local agent alone, rescued
+with P0, rescued with P3. Each runs once clean and once with the injection planted in the files an
+outsider could write to. Every cloud-bound request is logged before it is sent and scanned for the
+annotated values. Two numbers decide the claim: *leakage cut* and *gain kept*. Everything is in one
+page: **[docs/PLAN.md](docs/PLAN.md)**. How to run it on EC2-Bench: **[docs/EC2BENCH.md](docs/EC2BENCH.md)**.
+A diagram: [docs/system_flow.html](docs/system_flow.html).
 
-This is a measurement harness, not a new privacy tool. Everything runs offline with mock models;
-real models plug in through any OpenAI-compatible endpoint.
+This is a measurement harness, not a new privacy tool.
 
-## Quick start (no GPU, no API key)
+## On EC2-Bench (the study)
+
+```bash
+python -m codeblue ec2 patch /path/to/EC2-Bench        # adds P3 to their delegation proxy
+python -m codeblue ec2 labels-template --data-root ./ec2bench-data --out labels/draft.json
+python -m codeblue ec2 inject  --data-root ./ec2bench-data --out ./ec2bench-data-attacked
+python -m codeblue ec2 collect --data-root ./ec2bench-data --out results/pilot --arm P0:none:out/p0 ...
+```
+
+Full steps, including the 5-task pilot: [docs/EC2BENCH.md](docs/EC2BENCH.md). Hand labels:
+[labels/README.md](labels/README.md).
+
+## Practice room (no GPU, no API key)
+
+`data_rooms/harbourline` is a small fictional company we wrote to test the whole pipeline offline with
+mock models. It is not part of the claim.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies

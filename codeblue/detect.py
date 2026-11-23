@@ -12,7 +12,12 @@ import json
 import re
 from dataclasses import dataclass
 
-from codeblue.agent import strip_thinking
+# Self-contained on purpose (stdlib only): this file is also copied into EC2-Bench's cloud proxy for P3.
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+
+
+def strip_thinking(text: str) -> str:
+    return _THINK.sub("", text or "").strip()
 
 
 @dataclass(frozen=True)
@@ -77,14 +82,19 @@ class LLMDetector:
         'like [{"text": "...", "type": "NAME|MONEY|PCT|DATE|CODE|ACCOUNT|EMAIL|OTHER"}] and nothing else.'
     )
 
-    def __init__(self, local_model, glossary: list[str] | None = None):
+    def __init__(self, local_model=None, glossary: list[str] | None = None):
         self.model = local_model
         self.fallback = RegexDetector(glossary)
 
+    def messages(self, text: str) -> list[dict]:
+        return [{"role": "system", "content": self.PROMPT}, {"role": "user", "content": text}]
+
     def find(self, text: str) -> list[Span]:
-        reply = strip_thinking(
-            self.model.complete([{"role": "system", "content": self.PROMPT}, {"role": "user", "content": text}], "detect")
-        )
+        return self.parse(self.model.complete(self.messages(text), "detect"), text)
+
+    def parse(self, reply: str, text: str) -> list[Span]:
+        """Turn the model's reply into spans of `text`; regex spans are always added; regex only if unusable."""
+        reply = strip_thinking(reply)
         m = re.search(r"\[.*\]", reply, re.S)
         try:
             items = json.loads(m.group(0)) if m else None
