@@ -65,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"[{section}] endpoint {target['base_url']} serves: {', '.join(res['models']) or '(nothing)'}")
         if not res["model_listed"]:
-            print(f"FAIL: config asks for {target['model']!r}, which the server does not list")
+            print(f"FAIL: config asks for {target['model']!r}, which the server does not list. Another server "
+                  "(maybe someone else's) may be on this port: serve the model on a free PORT and change base_url.")
             return 1
         print(f"reply in {res['secs']} s: {res['reply']!r}")
         if a.cloud:
