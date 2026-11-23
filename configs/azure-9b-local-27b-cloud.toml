@@ -1,0 +1,47 @@
+# TEST SETUP: both models on the same Azure GPU VM. The local 9B model is on GPU 1 (port 8000) and a 27B model on
+# GPU 0 (port 8003) stands in for the cloud model, so real (non-mock) rescues can be tested without paying for a
+# cloud API. Nothing here leaves the VM, but the harness still logs and scans every [cloud] request exactly as it
+# would for a real cloud API, which is what the test is for. Results are NOT about frontier cloud models.
+#
+# On the VM, two tmux windows:
+#   GPU=1 bash scripts/azure/serve_9b.sh
+#   bash scripts/azure/serve_cloud_27b.sh            # or QUANT=fp8 ... if GPU 0 has < ~70 GiB free
+# Then (on the VM, or on a laptop with both ports tunnelled):
+#   export CODEBLUE_LOCAL_API_KEY=$(cat ~/.codeblue/vllm_api_key)
+#   export CODEBLUE_CLOUD_API_KEY=$(cat ~/.codeblue/cloud_api_key)
+#   python -m codeblue ping --config configs/azure-9b-local-27b-cloud.toml
+#   python -m codeblue ping --cloud --config configs/azure-9b-local-27b-cloud.toml
+#   python -m codeblue run  --config configs/azure-9b-local-27b-cloud.toml
+[local]
+kind = "openai"
+base_url = "http://localhost:8000/v1"
+model = "Qwen/Qwen3.5-9B"
+api_key_env = "CODEBLUE_LOCAL_API_KEY"
+temperature = 0.2
+max_tokens = 768
+timeout = 300
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[cloud]
+kind = "openai"
+base_url = "http://localhost:8003/v1"
+model = "Qwen/Qwen3.8-27B"                   # must match serve_cloud_27b.sh's MODEL / SERVED_NAME
+api_key_env = "CODEBLUE_CLOUD_API_KEY"       # contents of ~/.codeblue/cloud_api_key on the VM
+temperature = 0.0
+max_tokens = 1024
+timeout = 300
+extra_body = { chat_template_kwargs = { enable_thinking = false } }
+
+[experiment]
+data_room = "../data_rooms/harbourline"
+tasks = ["all"]
+packets = ["P0", "P1", "P2", "P3", "P4"]
+triggers = ["selfcheck"]
+include_local_only = true
+include_cloud_only = true
+seeds = [0]
+detector = "regex"
+takeover_steps = 2
+max_rescues = 3
+cooldown = 2
+out_dir = "runs"

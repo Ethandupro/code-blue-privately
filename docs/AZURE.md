@@ -98,6 +98,40 @@ For harnesses we don't control (EC2-Bench, TheAgentCompany), point their *local*
 (`http://localhost:8000/v1`, key `CODEBLUE_LOCAL_API_KEY`) and only their *cloud* model at the logging proxy
 (`python -m codeblue proxy ...`, see the README).
 
+## 5. Test setup: a 27B "cloud" model on the same VM
+
+To test real (non-mock) rescues without paying for a cloud API, serve a bigger model on a second GPU of the same VM
+and point `[cloud]` at it. The default is the local 9B model on GPU 1 (port 8000) and `Qwen/Qwen3.8-27B` (dense
+27B, official Qwen release, August 2026) on GPU 0 (port 8003). The harness treats port 8003 like any cloud API: every
+request goes to `cloud_log.jsonl` and is scanned. This checks the full pipeline with a model that can actually reason;
+the numbers are **not** results about frontier cloud models.
+
+```bash
+bash scripts/azure/serve_cloud_27b.sh check       # free memory on each GPU
+tmux new -s codeblue                              # window 0: local model
+GPU=1 bash scripts/azure/serve_9b.sh              # Ctrl-b c for a new window, then:
+bash scripts/azure/serve_cloud_27b.sh             # window 1: "cloud" model, BF16, needs ~70 GiB free on GPU 0
+QUANT=fp8 bash scripts/azure/serve_cloud_27b.sh   #   ...or FP8 if GPU 0 has less (needs ~40 GiB)
+```
+
+`serve_cloud_27b.sh` is `serve_9b.sh` with other defaults (`MODEL`, `PORT=8003`, `GPU=0`, `GPU_GB=70` or 40 with
+FP8), its own key in `~/.codeblue/cloud_api_key`, and its own log, `~/vllm_logs/codeblue_cloud_<time>.txt`. Any
+`serve_9b.sh` variable can be overridden. `TP=2` is not an option here because GPU 1 already hosts the 9B model, so
+if GPU 0 is short of memory use `QUANT=fp8` or a smaller `MAX_LEN`. Qwen3.8 is newer than Qwen3.5: if vLLM says the
+architecture is not supported, upgrade it (`uv pip install --python ~/venvs/vllm/bin/python -U vllm --torch-backend=auto`).
+The checkpoint has a vision encoder; `EXTRA_ARGS='--limit-mm-per-prompt {"image":0,"video":0}'` saves a little memory.
+
+Then, in a third window (or on your laptop with a second tunnel, `REMOTE_PORT=8003 LOCAL_PORT=8003 bash
+scripts/azure/tunnel.sh <vm>`):
+
+```bash
+export CODEBLUE_LOCAL_API_KEY=$(cat ~/.codeblue/vllm_api_key)
+export CODEBLUE_CLOUD_API_KEY=$(cat ~/.codeblue/cloud_api_key)
+python -m codeblue ping --config configs/azure-9b-local-27b-cloud.toml           # checks [local]
+python -m codeblue ping --cloud --config configs/azure-9b-local-27b-cloud.toml   # checks [cloud]
+python -m codeblue run  --config configs/azure-9b-local-27b-cloud.toml
+```
+
 ## Troubleshooting
 
 * `cannot reach http://localhost:8000/v1`: the tunnel is closed, or the server is still loading. On the VM,

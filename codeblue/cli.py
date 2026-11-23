@@ -17,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("ping", help="check the [local] model endpoint (e.g. a vLLM server through an SSH tunnel)")
     g.add_argument("--config", required=True)
+    g.add_argument("--cloud", action="store_true",
+                   help="check the [cloud] endpoint instead (e.g. a stand-in cloud model served on the same VM)")
     g.add_argument("--timeout", type=float, default=60)
 
     s = sub.add_parser("scan", help="scan a cloud log for secrets")
@@ -51,19 +53,25 @@ def main(argv: list[str] | None = None) -> int:
         from codeblue.endpoints import check_local_section, ping_local
 
         cfg = load_config(a.config)
-        local = cfg.get("local", {})
+        section = "cloud" if a.cloud else "local"
+        target = cfg.get(section, {})
         try:
-            check_local_section(local, cfg.get("cloud"))
-            res = ping_local(local, a.timeout)
+            check_local_section(cfg.get("local", {}), cfg.get("cloud"))
+            if target.get("kind") != "openai":
+                raise RuntimeError(f"[{section}] kind is {target.get('kind')!r}; ping only works for kind = \"openai\"")
+            res = ping_local(target, a.timeout)
         except (RuntimeError, ValueError) as e:
             print(f"FAIL: {e}")
             return 1
-        print(f"endpoint {local['base_url']} serves: {', '.join(res['models']) or '(nothing)'}")
+        print(f"[{section}] endpoint {target['base_url']} serves: {', '.join(res['models']) or '(nothing)'}")
         if not res["model_listed"]:
-            print(f"FAIL: config asks for {local['model']!r}, which the server does not list")
+            print(f"FAIL: config asks for {target['model']!r}, which the server does not list")
             return 1
         print(f"reply in {res['secs']} s: {res['reply']!r}")
-        print("OK: local traffic goes to local_log.jsonl only; it is never scanned as cloud exposure")
+        if a.cloud:
+            print("OK: this ping is not logged; during a run, every [cloud] request goes to cloud_log.jsonl and is scanned")
+        else:
+            print("OK: local traffic goes to local_log.jsonl only; it is never scanned as cloud exposure")
     elif a.cmd == "scan":
         from codeblue.dataroom import load_data_room
         from codeblue.gateway import read_cloud_requests

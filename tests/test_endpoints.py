@@ -108,3 +108,25 @@ def test_ping_cli(vllm_url, monkeypatch, tmp_path, capsys):
     assert "OK READY" in capsys.readouterr().out
     cfg.write_text(f'[local]\nkind = "openai"\nbase_url = "{vllm_url}"\nmodel = "other"\napi_key_env = "CB_KEY"\n')
     assert main(["ping", "--config", str(cfg)]) == 1
+
+
+def test_ping_cli_cloud(vllm_url, monkeypatch, tmp_path, capsys):
+    # a stand-in "cloud" model served on the same VM (another port); ping --cloud checks [cloud], not [local]
+    monkeypatch.setenv("CB_KEY", "s3cret")
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[local]\nkind = "mock-local"\n'
+                   f'[cloud]\nkind = "openai"\nbase_url = "{vllm_url}"\nmodel = "Qwen/Qwen3.5-9B"\napi_key_env = "CB_KEY"\n')
+    assert main(["ping", "--cloud", "--config", str(cfg)]) == 0
+    out = capsys.readouterr().out
+    assert "[cloud] endpoint" in out and "OK READY" in out
+    cfg.write_text('[local]\nkind = "mock-local"\n[cloud]\nkind = "mock-cloud"\n')
+    assert main(["ping", "--cloud", "--config", str(cfg)]) == 1
+
+
+def test_shipped_two_model_config_passes_endpoint_checks():
+    from codeblue.config import load_config
+    from pathlib import Path
+    cfg = load_config(Path(__file__).resolve().parents[1] / "configs" / "azure-9b-local-27b-cloud.toml")
+    check_local_section(cfg["local"], cfg["cloud"])
+    assert cfg["local"]["base_url"] != cfg["cloud"]["base_url"]
+    assert cfg["local"]["api_key_env"] != cfg["cloud"]["api_key_env"]
