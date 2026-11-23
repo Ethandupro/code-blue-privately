@@ -66,6 +66,9 @@ class FakeVLLM(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         FakeVLLM.bodies.append(body)
         if self._authed():
+            if body.get("model") != "Qwen/Qwen3.5-9B":  # like vLLM: unknown model -> 404
+                self._send(404, {"error": "model does not exist"})
+                return
             self._send(200, {"choices": [{"message": {"role": "assistant", "content": "OK READY"}}]})
 
 
@@ -130,3 +133,16 @@ def test_shipped_two_model_config_passes_endpoint_checks():
     check_local_section(cfg["local"], cfg["cloud"])
     assert cfg["local"]["base_url"] != cfg["cloud"]["base_url"]
     assert cfg["local"]["api_key_env"] != cfg["cloud"]["api_key_env"]
+
+
+def test_ping_wrong_model_on_port_is_a_clear_failure(vllm_url, monkeypatch, tmp_path, capsys):
+    # another server (for a different model) already on the port: no completion is sent, no traceback
+    monkeypatch.setenv("CB_KEY", "s3cret")
+    local = dict(_local(vllm_url), model="Qwen/Qwen3.8-27B")
+    n = len(FakeVLLM.bodies)
+    res = ping_local(local)
+    assert not res["model_listed"] and len(FakeVLLM.bodies) == n
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(f'[local]\nkind = "openai"\nbase_url = "{vllm_url}"\nmodel = "Qwen/Qwen3.8-27B"\napi_key_env = "CB_KEY"\n')
+    assert main(["ping", "--config", str(cfg)]) == 1
+    assert "free PORT" in capsys.readouterr().out
