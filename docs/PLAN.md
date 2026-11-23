@@ -77,6 +77,26 @@ bootstrap over tasks. Each part of the claim is **supported** if its whole inter
 threshold, **rejected** if its whole interval is below it, and otherwise **inconclusive**. `python -m codeblue run` prints this verdict and writes `claim.json`;
 `python -m codeblue claim runs/a runs/b ...` pools several runs (one per data room).
 
+## Secondary: leakage against the number of cloud calls
+
+Not part of the claim, but reported for every run, because it shows *why* the packets differ:
+
+* **Leakage curve** (`rescue_curve.csv`): cumulative unique secrets that have reached the cloud after
+  the 1st, 2nd, ... nth rescue, per packet and setting. A secret counts once, at the rescue where it
+  first got out. P0 resends the agent's growing history every time, so its curve should keep climbing.
+  P3 sends a short masked note, and the same value always gets the same placeholder across rescues, so
+  its curve should stay close to flat. Each point is shown two ways: averaged over the episodes that
+  reached that many rescues, and over all rescued episodes with each one's final value carried forward
+  (the first is affected by which episodes need many rescues; the second is not).
+* **Leakage against rescue count** (`leak_vs_rescues.csv`): each episode's total secrets leaked,
+  grouped by how many rescues it had, plus a straight-line slope (secret share leaked per extra
+  rescue) for each packet in `claim.json`. For P0 we expect a clearly positive slope; for P3, close
+  to zero.
+
+This is also where the injection shows its cost: forced extra rescues should push P0 further along its
+curve and leave P3 roughly where it was. Rescue count is chosen by the agent, not by us, so these are
+associations, not causal estimates; the claim itself rests on the paired comparison above.
+
 ## The benchmark: our own data rooms
 
 The claim is tested on **Code Blue data rooms**: fictional companies, each with about 8 files, about

@@ -59,6 +59,8 @@ Each run writes `runs/<timestamp>/`:
 |---|---|
 | `claim.json` | the two numbers for clean and attacked rooms, their 95% intervals, the attack's paired effect, and the verdict on each part |
 | `summary.csv` | per setting and condition: score, rescues, blocked trigger firings, cloud calls, characters sent, secrets leaked, injection seen / sent to cloud |
+| `rescue_curve.csv` | secondary: cumulative unique secrets leaked after the 1st, 2nd, ... nth rescue, per packet |
+| `leak_vs_rescues.csv` | secondary: secrets leaked per episode grouped by its number of rescues (slope per packet in `claim.json`) |
 | `leakage.json` | per episode: which secrets leaked, how, at which cloud call, essential vs bystander |
 | `episodes.jsonl` | every step of every episode: who acted, rescues, blocked firings, score |
 | `cloud_log.jsonl` | every cloud-bound request (logged **before** sending) and its reply |
@@ -107,6 +109,8 @@ Each run writes `runs/<timestamp>/`:
   (`stuck_claim`, `fake_error`, `loop_bait`, `handoff_stuffing`) are there for diagnosis.
 * **Claim check** (`codeblue/claim.py`): leakage cut and gain kept with a paired bootstrap over tasks,
   for clean and attacked rooms, plus the attack's effect paired with the clean run.
+* **Leakage vs cloud calls** (`codeblue/curves.py`), secondary: how leakage grows with each rescue,
+  per packet. P0 should climb; P3 should stay near flat.
 
 ## The data rooms
 

@@ -12,6 +12,7 @@ from statistics import mean
 from codeblue.attacks import apply_attack, exposure_stats, get_attack
 from codeblue.claim import evaluate_all, print_claim
 from codeblue.config import make_model
+from codeblue.curves import curve_by_rescue, rescue_tables
 from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
 from codeblue.detect import make_detector
@@ -92,7 +93,9 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
                             print(f"{ep_id:68s} score={res['score']:.2f} rescues={res['n_rescues']}{extra}")
 
     summarise(room, out, episodes, quiet=quiet)
-    claim = evaluate_all(episodes, json.loads((out / "leakage.json").read_text()), exp.get("claim"))
+    leaks = json.loads((out / "leakage.json").read_text())
+    claim = evaluate_all(episodes, leaks, exp.get("claim"))
+    claim["secondary"] = {"secret_share_per_extra_rescue": rescue_tables(episodes, leaks)[2]}
     (out / "claim.json").write_text(json.dumps(claim, indent=2))
     if not quiet:
         print_claim(claim)
@@ -110,9 +113,13 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
         v["n_secrets_total"] = len(room.secrets)
 
     texts: dict[str, list[str]] = defaultdict(list)
+    call_rescue: dict[str, list[int]] = defaultdict(list)
     if log.exists():
         for rec in read_cloud_requests(log):
             texts[rec.get("episode_id", "unknown")].append(request_text(rec))
+            call_rescue[rec.get("episode_id", "unknown")].append(int(rec.get("rescue", 0)))
+    for ep, lk in leaks.items():
+        lk["curve_by_rescue"] = curve_by_rescue(lk, call_rescue.get(ep, []))
     for e in episodes:
         e.setdefault("attack", "none")
         e["exposure"] = exposure_stats(get_attack(e["attack"]), e["steps"], texts.get(e["episode_id"], []))
@@ -139,14 +146,25 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
             "injection_seen_rate": round(mean(e["exposure"]["injection_seen_by_agent"] for e in eps), 3),
             "injection_to_cloud_rate": round(mean(e["exposure"]["n_cloud_calls_with_injection"] > 0 for e in eps), 3),
         })
-    with (out / "summary.csv").open("w", newline="") as f:
+    _write_csv(out / "summary.csv", rows)
+    curve_rows, count_rows, _ = rescue_tables(episodes, leaks)
+    if curve_rows:
+        _write_csv(out / "rescue_curve.csv", curve_rows)
+        _write_csv(out / "leak_vs_rescues.csv", count_rows)
+    if not quiet:
+        print_table(rows)
+        if curve_rows:
+            print("\nsecrets leaked so far after the nth rescue (secondary; see rescue_curve.csv):")
+            print_table(curve_rows)
+        print(f"\nwrote {out}/summary.csv, leakage.json, episodes.jsonl, cloud_log.jsonl, local_log.jsonl")
+    return rows
+
+
+def _write_csv(path: Path, rows: list[dict]) -> None:
+    with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    if not quiet:
-        print_table(rows)
-        print(f"\nwrote {out}/summary.csv, leakage.json, episodes.jsonl, cloud_log.jsonl, local_log.jsonl")
-    return rows
 
 
 def print_table(rows: list[dict]) -> None:
