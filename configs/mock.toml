@@ -1,7 +1,9 @@
 # Offline run of the main experiment with mock models. No network, no API keys.
-# Three conditions on the same tasks and seeds: local-only, P0 (full history), P3 (placeholder brief).
+# Three conditions (local-only, P0 full history, P3 placeholder note) on the same tasks and seeds,
+# each in the clean rooms and in rooms with the stuck_and_stuff injection planted.
 [local]
 kind = "mock-local"
+gullible = true           # the mock obeys every injection (an upper bound); no effect on clean rooms
 
 [cloud]
 kind = "mock-cloud"
@@ -12,6 +14,8 @@ tasks = ["all"]
 packets = ["P0", "P3"]    # the one comparison; add "P1" only to ask "summarising or masking?"
 triggers = ["selfcheck"]
 include_local_only = true
+attacks = ["none", "stuck_and_stuff"]   # clean rooms, and rooms with the injection in attacker-writable files
+attack_placement = "vectors"            # files listed in <room>/attacks.json
 seeds = [0, 1, 2]
 detector = "regex"        # regex is the main detector; oracle (uses the labels) is an upper bound only
 takeover_steps = 2        # cloud steps per rescue: what makes a rescue "short"

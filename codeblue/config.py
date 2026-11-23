@@ -28,7 +28,7 @@ def make_model(section: dict, tasks):
             extra_body=section.get("extra_body"),
         )
     if kind == "mock-local":
-        return MockLocalModel(tasks)
+        return MockLocalModel(tasks, gullible=section.get("gullible", False))
     if kind == "mock-cloud":
         return MockCloudModel(tasks)
     raise ValueError(f"unknown model kind {kind!r} (use openai, mock-local or mock-cloud)")

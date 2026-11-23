@@ -9,12 +9,13 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
-from codeblue.claim import evaluate, print_claim
+from codeblue.attacks import apply_attack, exposure_stats, get_attack
+from codeblue.claim import evaluate_all, print_claim
 from codeblue.config import make_model
 from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
 from codeblue.detect import make_detector
-from codeblue.gateway import CloudGateway
+from codeblue.gateway import CloudGateway, read_cloud_requests, request_text
 from codeblue.llm import LoggedModel
 from codeblue.loop import LoopConfig, run_episode
 from codeblue.packets import make_builder
@@ -65,28 +66,35 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
         max_obs_chars=exp.get("max_obs_chars", 2000),
     )
 
+    # "none" is the clean setting; each attack gets its own copy of the room with the injection planted.
+    placement = exp.get("attack_placement", "vectors")
+    arms = []
+    for name in exp.get("attacks", ["none"]):
+        attack = get_attack(name)
+        arms.append((name, attack, *apply_attack(room, attack, placement)))
+
     episodes = []
     with (out / "episodes.jsonl").open("w", encoding="utf-8") as f:
         for seed in exp.get("seeds", [0]):
-            for packet, trig in conditions(exp):
-                for task in tasks:
-                    ep_id = f"{task.id}__{packet or 'none'}__{trig}__s{seed}"
-                    local.context = {"episode_id": ep_id}
-                    res = run_episode(ep_id, room, task, local, gateway,
-                                      make_builder(packet) if packet else None,
-                                      make_trigger(trig, exp, seed), detector, loop_cfg)
-                    res["seed"] = seed
-                    res["room"] = room.name
-                    episodes.append(res)
-                    f.write(json.dumps(res) + "\n")
-                    if not quiet:
-                        extra = f" blocked={res['n_blocked_firings']}" if res["n_blocked_firings"] else ""
-                        print(f"{ep_id:55s} score={res['score']:.2f} rescues={res['n_rescues']}{extra}")
+            for attack_name, attack, arm_room, injected in arms:
+                for packet, trig in conditions(exp):
+                    for task in tasks:
+                        ep_id = f"{task.id}__{packet or 'none'}__{trig}__{attack_name}__s{seed}"
+                        local.context = {"episode_id": ep_id}
+                        res = run_episode(ep_id, arm_room, arm_room.tasks[task.id], local, gateway,
+                                          make_builder(packet) if packet else None,
+                                          make_trigger(trig, exp, seed), detector, loop_cfg)
+                        res.update(seed=seed, room=room.name, attack=attack_name, injected_files=injected)
+                        episodes.append(res)
+                        f.write(json.dumps(res) + "\n")
+                        if not quiet:
+                            extra = f" blocked={res['n_blocked_firings']}" if res["n_blocked_firings"] else ""
+                            print(f"{ep_id:68s} score={res['score']:.2f} rescues={res['n_rescues']}{extra}")
 
     summarise(room, out, episodes, quiet=quiet)
-    claim = evaluate(episodes, json.loads((out / "leakage.json").read_text()), exp.get("claim"))
+    claim = evaluate_all(episodes, json.loads((out / "leakage.json").read_text()), exp.get("claim"))
     (out / "claim.json").write_text(json.dumps(claim, indent=2))
-    if not quiet and "conditions" in claim:
+    if not quiet:
         print_claim(claim)
     return out
 
@@ -100,16 +108,25 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
                               "leaked": {}, "cumulative_curve": []})
     for v in leaks.values():
         v["n_secrets_total"] = len(room.secrets)
+
+    texts: dict[str, list[str]] = defaultdict(list)
+    if log.exists():
+        for rec in read_cloud_requests(log):
+            texts[rec.get("episode_id", "unknown")].append(request_text(rec))
+    for e in episodes:
+        e.setdefault("attack", "none")
+        e["exposure"] = exposure_stats(get_attack(e["attack"]), e["steps"], texts.get(e["episode_id"], []))
+        leaks[e["episode_id"]]["injection_to_cloud"] = e["exposure"]["n_cloud_calls_with_injection"] > 0
     (out / "leakage.json").write_text(json.dumps(leaks, indent=2))
 
     groups = defaultdict(list)
     for e in episodes:
-        groups[(e["packet"] or "local-only", e["trigger"])].append(e)
+        groups[(e["attack"], e["packet"] or "local-only", e["trigger"])].append(e)
     rows = []
-    for (packet, trig), eps in groups.items():
+    for (attack, packet, trig), eps in groups.items():
         ls = [leaks[e["episode_id"]] for e in eps]
         rows.append({
-            "packet": packet, "trigger": trig, "episodes": len(eps),
+            "attack": attack, "packet": packet, "trigger": trig, "episodes": len(eps),
             "mean_score": round(mean(e["score"] for e in eps), 3),
             "success_rate": round(mean(e["score"] == 1.0 for e in eps), 3),
             "mean_rescues": round(mean(e["n_rescues"] for e in eps), 2),
@@ -119,6 +136,8 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
             "mean_essential_leaked": round(mean(l["n_essential_leaked"] for l in ls), 2),
             "mean_bystander_leaked": round(mean(l["n_bystander_leaked"] for l in ls), 2),
             "mean_secrets_leaked": round(mean(l["n_essential_leaked"] + l["n_bystander_leaked"] for l in ls), 2),
+            "injection_seen_rate": round(mean(e["exposure"]["injection_seen_by_agent"] for e in eps), 3),
+            "injection_to_cloud_rate": round(mean(e["exposure"]["n_cloud_calls_with_injection"] > 0 for e in eps), 3),
         })
     with (out / "summary.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))

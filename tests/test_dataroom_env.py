@@ -2,7 +2,7 @@ from codeblue.env import DataRoomEnv, score_answer
 
 
 def test_room_loads(room):
-    assert len(room.tasks) == 3
+    assert len(room.tasks) == 4
     assert {s.kind for s in room.secrets.values()} == {"canary", "fact", "composite"}
     t = room.tasks["t1_board_cost_summary"]
     assert "fact_q4_spend" not in room.bystanders(t)

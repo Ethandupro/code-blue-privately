@@ -16,7 +16,8 @@ result exists.
 | Cloud-only (`always` trigger) | same file | Tells us the ceiling, not whether P3 works. |
 | Privacy-aware and early-warning triggers | not built | A separate question (H3). |
 | Capped rescues (`max_rescues`, `cooldown`) | `codeblue/loop.py`, off by default | The main study measures rescues instead of limiting them. Set them for a sensitivity run; blocked firings are logged. |
-| Escalation-forcing injection attack | PR #3 (branch `claude/project-thread-8v381w`) | A different threat (an outsider forcing rescues). A study of its own; see the PR. |
+| Single-purpose injection variants (`stuck_claim`, `fake_error`, `loop_bait`, `handoff_stuffing`) | `codeblue/attacks.py` | The main study uses one combined attack, `stuck_and_stuff`, as part 3 of the claim. The variants stay for working out which half of the attack did the damage. |
+| Self-check defences (spotlighting, an actions-only view) and a two-stage attack screen | PR #3 (branch `claude/project-thread-8v381w`), not merged | Testing defences is a second question. The attack itself is now in the main study. |
 | Attacker model that infers secrets from what leaked; composite-secret inference | not built (composite secrets are still scanned) | Needs a second model and its own validation. |
 | Accumulation curves across rescues | `leakage.json` still records `cumulative_curve` | Reported as a side figure if useful, not a claim. |
 | Other benchmarks: EC2-Bench, TheAgentCompany, EnterpriseOps-Gym | HTTP logging proxy in `codeblue/optional/proxy_server.py` (`codeblue proxy`) | Each needs an adapter and secret labels. Stretch goal: re-run P0 vs P3 on EC2-Bench's organisational tasks. |

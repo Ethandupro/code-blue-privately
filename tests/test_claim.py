@@ -1,6 +1,6 @@
 import json
 
-from codeblue.claim import evaluate, load_runs
+from codeblue.claim import evaluate, evaluate_all, load_runs
 from codeblue.config import load_config
 from codeblue.runner import run_experiment
 
@@ -45,7 +45,8 @@ def test_claim_rejected_when_masking_breaks_the_rescue():
 def test_run_writes_claim_and_pools(tmp_path):
     out = run_experiment(load_config(ROOT / "configs" / "mock.toml"), tmp_path / "run", quiet=True)
     claim = json.loads((out / "claim.json").read_text())
-    assert set(claim["conditions"]) == {"local-only", "P0", "P3"}
-    assert claim["leakage_cut"]["estimate"] > 0.75
+    clean = claim["none"]
+    assert set(clean["conditions"]) == {"local-only", "P0", "P3"}
+    assert clean["leakage_cut"]["estimate"] > 0.75
     eps, leaks = load_runs([out])
-    assert evaluate(eps, leaks)["n_tasks"] == claim["n_tasks"]
+    assert evaluate_all(eps, leaks)["parts"] == claim["parts"]

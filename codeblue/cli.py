@@ -54,9 +54,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL: {e}")
             return 1
     elif a.cmd == "claim":
-        from codeblue.claim import evaluate, load_runs, print_claim
+        from codeblue.claim import evaluate_all, load_runs, print_claim
 
-        res = evaluate(*load_runs(a.runs), {"baseline": a.baseline, "method": a.method})
+        res = evaluate_all(*load_runs(a.runs), {"baseline": a.baseline, "method": a.method})
         print_claim(res)
         print(json.dumps(res, indent=2))
     elif a.cmd == "ping":

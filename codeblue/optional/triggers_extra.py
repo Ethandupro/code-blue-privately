@@ -54,7 +54,7 @@ def matched_rate(episodes_path: str | Path, trigger: str = "selfcheck") -> float
     rescues = points = 0
     for line in Path(episodes_path).read_text().splitlines():
         e = json.loads(line)
-        if e["trigger"] == trigger:
+        if e["trigger"] == trigger and e.get("attack", "none") == "none":
             rescues += e["n_rescues"]
             points += e["decision_points"]
     return rescues / points if points else 0.0
