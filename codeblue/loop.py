@@ -105,5 +105,7 @@ def run_episode(
         "decision_points": decision_points,
         "rescues": rescues,
         "blocked_firings": blocked,
+        # value -> placeholder, kept on the device; used only to measure what placeholders let the cloud link
+        "placeholder_table": dict(ctx.table.to_ph),
         "steps": [asdict(s) for s in steps],
     }

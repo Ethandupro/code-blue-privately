@@ -13,6 +13,7 @@ from codeblue.attacks import apply_attack, exposure_stats, get_attack
 from codeblue.claim import evaluate_all, print_claim
 from codeblue.config import make_model
 from codeblue.curves import curve_by_rescue, rescue_tables
+from codeblue.mosaic import mosaic_episode, mosaic_table
 from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
 from codeblue.detect import make_detector
@@ -95,7 +96,8 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
     summarise(room, out, episodes, quiet=quiet)
     leaks = json.loads((out / "leakage.json").read_text())
     claim = evaluate_all(episodes, leaks, exp.get("claim"))
-    claim["secondary"] = {"secret_share_per_extra_rescue": rescue_tables(episodes, leaks)[2]}
+    claim["secondary"] = {"secret_share_per_extra_rescue": rescue_tables(episodes, leaks)[2],
+                          "mosaic": mosaic_table(episodes, leaks)}
     (out / "claim.json").write_text(json.dumps(claim, indent=2))
     if not quiet:
         print_claim(claim)
@@ -118,8 +120,10 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
         for rec in read_cloud_requests(log):
             texts[rec.get("episode_id", "unknown")].append(request_text(rec))
             call_rescue[rec.get("episode_id", "unknown")].append(int(rec.get("rescue", 0)))
+    tables = {e["episode_id"]: e.get("placeholder_table") or {} for e in episodes}
     for ep, lk in leaks.items():
         lk["curve_by_rescue"] = curve_by_rescue(lk, call_rescue.get(ep, []))
+        lk["mosaic"] = mosaic_episode(room, texts.get(ep, []), lk, tables.get(ep, {}), call_rescue.get(ep, []))
     for e in episodes:
         e.setdefault("attack", "none")
         e["exposure"] = exposure_stats(get_attack(e["attack"]), e["steps"], texts.get(e["episode_id"], []))
@@ -151,11 +155,17 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
     if curve_rows:
         _write_csv(out / "rescue_curve.csv", curve_rows)
         _write_csv(out / "leak_vs_rescues.csv", count_rows)
+    mosaic_rows = mosaic_table(episodes, leaks)
+    if mosaic_rows:
+        _write_csv(out / "mosaic.csv", mosaic_rows)
     if not quiet:
         print_table(rows)
         if curve_rows:
             print("\nsecrets leaked so far after the nth rescue (secondary; see rescue_curve.csv):")
             print_table(curve_rows)
+        if mosaic_rows:
+            print("\nsecrets pieced together across calls (secondary; see mosaic.csv):")
+            print_table(mosaic_rows)
         print(f"\nwrote {out}/summary.csv, leakage.json, episodes.jsonl, cloud_log.jsonl, local_log.jsonl")
     return rows
 
