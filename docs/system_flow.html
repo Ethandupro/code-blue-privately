@@ -138,7 +138,7 @@ tr.plan td { color: var(--muted); }
 <header>
   <div class="eyebrow">Code Blue, Privately · system flow · simplified 23 Nov 2026</div>
   <h1>Does a masked handoff note stop a rescued agent from leaking company secrets, even under attack?</h1>
-  <p class="lede">A small agent on company hardware works through a confidential data room. When it gets stuck it hands control to a cloud model for two steps. The usual way is to send the cloud its whole history (P0). We test one alternative: a short note written on the device with names, amounts and codes swapped for placeholders (P3). Every condition also runs with an outsider&rsquo;s text planted in the files they could write to, telling the agent it is stuck and to paste everything into its note. Every byte the cloud receives is logged before it is sent and scanned for secrets planted in advance.</p>
+  <p class="lede">A small agent on company hardware works through a confidential task (from EC2-Bench). When it wants help it calls an <code>escalate</code> tool and a cloud model performs the next step. The usual way is to send the cloud its whole history (P0). We test one alternative: a short note written on the device with names, amounts and codes swapped for placeholders (P3). Every condition also runs with an outsider&rsquo;s text planted in the files they could write to, telling the agent it is stuck and to paste everything into its note. Every byte the cloud receives is logged before it is sent and scanned for the values EC2-Bench annotated as sensitive in advance.</p>
   <div class="legend" aria-label="Legend">
     <span><i class="sw llm"></i>LLM call</span>
     <span><i class="sw inj"></i>Attacker or injected content</span>
@@ -158,7 +158,8 @@ tr.plan td { color: var(--muted); }
 <section>
   <div class="sec-head">
     <div class="eyebrow">Figure 1 · one episode</div>
-    <h2>The local agent works, the self-check says stuck, the cloud acts for two steps, then hands back</h2>
+    <h2>The local agent works, asks for help, the cloud acts, then hands back</h2>
+    <p>Drawn for our practice harness (<code>codeblue/loop.py</code>, Harbourline room). On EC2-Bench the same flow runs inside their container: the agent's own <code>escalate</code> tool is the trigger, their proxy is the gateway and logs to <code>cloud_assistant_audit.jsonl</code>, the cloud takes one step per escalation, and our patch swaps the full history for the P3 note.</p>
   </div>
   <figure>
     <div class="plate">
@@ -277,7 +278,7 @@ tr.plan td { color: var(--muted); }
       <text class="it" x="640" y="384" text-anchor="end">injected into web notes and customer emails</text>
     </svg>
     </div>
-    <figcaption><b>The loop</b> (<code>codeblue/loop.py</code>): before each step the self-check is asked. If it says stuck, the cloud takes <code>takeover_steps</code> = 2 steps, each from a fresh packet, then hands back. <b>No cap on rescues:</b> the only limit is the task's 12-step budget, the same in every condition, and the number of rescues is reported. <code>max_rescues</code> and <code>cooldown</code> exist only for a sensitivity run; when set, every firing they block is logged as a <code>blocked_firing</code>. <b>Two logs, never mixed:</b> local-model calls go to <code>local_log.jsonl</code>; only <code>CloudGateway</code> writes <code>cloud_log.jsonl</code>, before sending, so a failed call still counts as exposure. <b>Scoring</b> is deterministic: the share of the task's required facts in the final answer. <b>Attack setting</b> (<code>codeblue/attacks.py</code>): the same runs on a copy of the room with the <code>stuck_and_stuff</code> injection appended to the files in <code>attacks.json</code>. It carries a marker, so we record whether the agent saw it and whether it reached the cloud. It contains no secrets.</figcaption>
+    <figcaption><b>The loop</b> (<code>codeblue/loop.py</code>): before each step the self-check is asked. If it says stuck, the cloud takes <code>takeover_steps</code> = 2 steps, each from a fresh packet, then hands back. <b>No cap on rescues:</b> the only limit is the task's 12-step budget, the same in every condition, and the number of rescues is reported. <code>max_rescues</code> and <code>cooldown</code> exist only for a sensitivity run; when set, every firing they block is logged as a <code>blocked_firing</code>. <b>Two logs, never mixed:</b> local-model calls go to <code>local_log.jsonl</code>; only <code>CloudGateway</code> writes <code>cloud_log.jsonl</code>, before sending, so a failed call still counts as exposure. <b>Scoring</b> in the practice room: the share of the task's required facts in the final answer; on EC2-Bench, their own completion score. <b>Attack setting</b> (<code>codeblue/attacks.py</code>): the same runs on a copy of the room with the <code>stuck_and_stuff</code> injection appended to the files in <code>attacks.json</code>. It carries a marker, so we record whether the agent saw it and whether it reached the cloud. It contains no secrets.</figcaption>
   </figure>
 </section>
 
@@ -291,7 +292,7 @@ tr.plan td { color: var(--muted); }
     <thead><tr><th>Condition</th><th>What the cloud sees when the agent is stuck</th><th>Role</th></tr></thead>
     <tbody>
       <tr><td>local-only</td><td>Nothing; the agent carries on alone</td><td>The floor for task score</td></tr>
-      <tr><td>P0 full history</td><td>The agent's whole context, verbatim, as in EC2-Bench</td><td>The baseline</td></tr>
+      <tr><td>P0 full history</td><td>The agent's whole context, verbatim: EC2-Bench's delegation mode, unchanged</td><td>The baseline</td></tr>
       <tr><td>P3 placeholder note</td><td>The goal plus a handoff note written by the local model, with detected names, amounts, dates and codes replaced by <code>&lt;NAME_1&gt;</code>, <code>&lt;MONEY_2&gt;</code>... The table stays on the device; placeholders in the cloud's reply are filled back in before the action runs</td><td>The method under test</td></tr>
     </tbody>
   </table>
@@ -304,7 +305,7 @@ tr.plan td { color: var(--muted); }
     <h2>Leakage cut and gain kept, with 95% intervals over tasks, for clean and attacked rooms</h2>
   </div>
   <div class="facts">
-    <div><span class="k">Leak per episode</span><span>Share of the room's labelled secrets found in anything sent to the cloud, by exact, near-miss, number-format and keyword matching</span></div>
+    <div><span class="k">Leak per episode</span><span>Share of the task's annotated sensitive values found in anything sent to the cloud, by exact, near-miss, number-format and keyword matching</span></div>
     <div><span class="k">Leakage cut</span><span>1 &minus; leak(P3) &divide; leak(P0). Needs &ge; 75%</span></div>
     <div><span class="k">Gain kept</span><span>(score P3 &minus; local-only) &divide; (score P0 &minus; local-only). Needs &ge; 80%</span></div>
     <div><span class="k">Attack effect (reported, not claimed)</span><span>Paired with the clean run of the same task and seed: extra rescues, forced rate (no rescue clean, a rescue attacked), extra secrets leaked, injection forwarded to the cloud</span></div>
@@ -317,14 +318,14 @@ tr.plan td { color: var(--muted); }
 <section>
   <div class="sec-head">
     <div class="eyebrow">Benchmark and size</div>
-    <h2>Our own data rooms, 40 tasks, 720 episodes</h2>
-    <p>Each room is a fictional company with about 8 files, 12 labelled secrets, 2 to 4 attacker-writable files and 10 tasks; each task names the secrets it needs (essential), and the rest are bystanders. We use our rooms rather than EC2-Bench because leaks must be countable by string matching, not judged by an AI, and because EC2-Bench's full-history setup already is our P0 baseline. EC2-Bench is cited as the closest prior work.</p>
+    <h2>EC2-Bench, adapted: 100 tasks, about 1,650 episodes</h2>
+    <p>EC2-Bench (arXiv 2610.17816) has 128 long-horizon agent tasks; 100 come with annotated sensitive values. Its delegation mode already is P0, so we add only P3 (one proxy function, <code>codeblue ec2 patch</code>), feed its annotated values to our deterministic scanner, and hand-label per task which values are essential, which files an outsider could write, and any composite secrets (<code>labels/ec2bench.json</code>). Their LLM judge stays as a second measure. Our own Harbourline room is kept as an offline practice room.</p>
   </div>
   <div class="facts">
-    <div><span class="k">Tasks</span><span>4 rooms &times; 10 tasks = 40, frozen before final runs</span></div>
-    <div><span class="k">Episodes</span><span>40 tasks &times; 3 seeds &times; 3 conditions &times; 2 settings = 720 (480 call the cloud)</span></div>
+    <div><span class="k">Tasks</span><span>100 annotated tasks; 83 in the attacked setting (17 already contain their own injection). Hand labels frozen before final runs</span></div>
+    <div><span class="k">Episodes</span><span>(100 + 83) tasks &times; 3 repeats &times; 3 conditions &asymp; 1,650 (1,100 call the cloud)</span></div>
     <div><span class="k">Models</span><span>Local: Qwen3.5-9B on vLLM. Cloud: 27B stand-in for the free pilot, one frontier model for the final runs</span></div>
-    <div><span class="k">Pilot gate</span><span>If P0 rescues lift the score on fewer than ~15 of 40 tasks, fix the tasks before paying for the frontier model</span></div>
+    <div><span class="k">Pilot gate</span><span>5 tasks with the free 27B stand-in first: annotated values must show up literally in P0's cloud log, P0 must beat local-only, P3 must run end to end, and the agent must open the planted files</span></div>
   </div>
 </section>
 
@@ -332,7 +333,7 @@ tr.plan td { color: var(--muted); }
   <div class="eyebrow" style="color:var(--inj)">Parked, not in this study</div>
   <ul>
     <li>Other packets (P2 blanked, P4 structure only, P2h/P3h ablations, a PAAC-style P3b), the random and cloud-only triggers, privacy-aware triggers.</li>
-    <li>Self-check defences against the injection (PR #3), an attacker model that infers secrets, and other benchmarks (EC2-Bench re-run, TheAgentCompany, EnterpriseOps-Gym).</li>
+    <li>Self-check defences against the injection (PR #3), an attacker model that infers secrets, and other benchmarks (TheAgentCompany, EnterpriseOps-Gym).</li>
     <li>Reasons for each, and how to run the old full grid: <code>optional/README.md</code>.</li>
   </ul>
 </section>

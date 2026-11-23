@@ -114,7 +114,7 @@ def evaluate(episodes: list[dict], leaks: dict[str, dict], settings: dict | None
     if cut is None:
         out["note"] = f"{s['baseline']} leaked nothing, so there is nothing to cut"
     if len(tasks) < 30:
-        out.setdefault("note", f"only {len(tasks)} tasks; the plan needs at least 40 for a real result")
+        out.setdefault("note", f"only {len(tasks)} tasks; too few for a real result (the plan uses 100)")
     return out
 
 
@@ -178,7 +178,7 @@ def print_claim(res: dict) -> None:
     if "parts" not in res:
         return _print_setting(res, "")
     for name, r in res.items():
-        if name in ("settings", "parts"):
+        if name in ("settings", "parts", "secondary", "coverage"):
             continue
         _print_setting(r, "clean rooms" if name == "none" else f"attack: {name}")
         for p, eff in r.get("attack_effect", {}).items():
