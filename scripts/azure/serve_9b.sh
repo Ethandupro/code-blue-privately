@@ -28,6 +28,7 @@ MAX_LEN=${MAX_LEN:-32768}        # Code Blue episodes are short; 32k keeps the K
 MAX_SEQS=${MAX_SEQS:-16}
 KEY_FILE=${KEY_FILE:-$HOME/.codeblue/vllm_api_key}
 LOG_DIR=${LOG_DIR:-$HOME/vllm_logs}
+LOG_TAG=${LOG_TAG:-codeblue_server}   # file name prefix of the server log in LOG_DIR
 
 if [ -z "${GPU_GB:-}" ]; then
   if [ -n "$QUANT" ]; then GPU_GB=16; else GPU_GB=26; fi   # weights + KV cache + CUDA graphs, with headroom
@@ -51,7 +52,7 @@ if [ -z "${VLLM_API_KEY:-}" ]; then
   if [ ! -s "$KEY_FILE" ]; then
     mkdir -p "$(dirname "$KEY_FILE")"; chmod 700 "$(dirname "$KEY_FILE")"
     (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >"$KEY_FILE")
-    echo "created a new API key in $KEY_FILE (copy it to your laptop as CODEBLUE_LOCAL_API_KEY)"
+    echo "created a new API key in $KEY_FILE (the harness reads it from the api_key_env variable in its config)"
   fi
   VLLM_API_KEY=$(cat "$KEY_FILE")
 fi
@@ -77,7 +78,7 @@ done
 UTIL=$(python3 -c "print(round(min(0.95, $GPU_GB * 1024 / $TOTAL_MIB), 3))")
 
 mkdir -p "$LOG_DIR"
-INFO="$LOG_DIR/codeblue_server_$(date -u +%Y%m%dT%H%M%SZ).txt"
+INFO="$LOG_DIR/${LOG_TAG}_$(date -u +%Y%m%dT%H%M%SZ).txt"
 {
   echo "model=$MODEL served_as=$SERVED_NAME port=$PORT gpu=$GPU tp=$TP quant=${QUANT:-bf16} gpu_gb=$GPU_GB util=$UTIL max_len=$MAX_LEN max_seqs=$MAX_SEQS extra=${EXTRA_ARGS:-}"
   "$VENV/bin/python" -c "import vllm, torch; print('vllm', vllm.__version__, 'torch', torch.__version__, 'cuda', torch.version.cuda)"

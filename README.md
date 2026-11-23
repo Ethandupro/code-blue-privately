@@ -12,7 +12,7 @@ real models plug in through any OpenAI-compatible endpoint.
 
 ```bash
 python -m pip install -e ".[dev]"     # Python 3.11+, no runtime dependencies
-pytest -q                             # 47 tests
+pytest -q                             # 49 tests
 python -m codeblue run --config configs/mock.toml
 ```
 
@@ -125,6 +125,10 @@ python -m codeblue run  --config configs/azure-9b.toml
 The harness refuses a `[local]` `base_url` that is not loopback or a private IP, and refuses `[local]`
 and `[cloud]` with the same endpoint, so local traffic stays in `local_log.jsonl` and never mixes
 with the cloud log.
+
+To test real rescues for free, `scripts/azure/serve_cloud_27b.sh` serves a 27B model on a second GPU of the same VM
+(port 8003) as a stand-in cloud, and `configs/azure-9b-local-27b-cloud.toml` points `[cloud]` at it; `codeblue ping
+--cloud` checks that endpoint. See [docs/AZURE.md](docs/AZURE.md), section 5.
 
 Change `model` to any tag Ollama or vLLM serves. `configs/vllm-cloud.toml` is the template for a
 real run (Gemma 4 26B on vLLM, any OpenAI-compatible cloud API with the key in an environment
