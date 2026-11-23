@@ -12,9 +12,17 @@ from codeblue.packets import PacketBuilder, RescueContext
 
 @dataclass
 class LoopConfig:
-    takeover_steps: int = 2  # cloud steps per rescue before handing back
-    max_rescues: int = 3
-    cooldown: int = 2  # local steps after a rescue before another can trigger
+    """Rescue settings. By default nothing limits how often the agent may ask for help except the task's
+    step budget (max_steps), which is the same for every condition; the number of rescues is measured.
+
+    max_rescues and cooldown are optional limits for sensitivity runs. When one is set, the trigger is
+    still asked at every step, and each firing the limit blocks is recorded in the episode's
+    `blocked_firings`, so a cap never hides how often the agent wanted help.
+    """
+
+    takeover_steps: int = 2  # cloud steps per rescue before handing back (the "short rescue")
+    max_rescues: int | None = None  # None: no cap
+    cooldown: int = 0  # local steps after a rescue before another may start; 0: none
     max_steps: int | None = None  # None: use the task's max_steps
     max_obs_chars: int = 2000
 
@@ -47,17 +55,23 @@ def run_episode(
     trigger.reset(episode_id)
     steps: list[Step] = []
     rescues: list[dict] = []
+    blocked: list[dict] = []
     decision_points = 0
     last_rescue_end = -10**9
 
     while len(steps) < max_steps and not env.done:
-        can_rescue = builder is not None and (
-            not trigger.capped or (len(rescues) < cfg.max_rescues and len(steps) - last_rescue_end >= cfg.cooldown)
-        )
-        if can_rescue:
-            decision_points += 1
+        if builder is not None:
+            limit = None
+            if trigger.capped and cfg.max_rescues is not None and len(rescues) >= cfg.max_rescues:
+                limit = "max_rescues"
+            elif trigger.capped and len(steps) - last_rescue_end < cfg.cooldown:
+                limit = "cooldown"
+            if limit is None:
+                decision_points += 1
             fire, reason = trigger.check(task, steps, local_model)
-            if fire:
+            if fire and limit is not None:
+                blocked.append({"at_step": len(steps), "reason": reason, "blocked_by": limit})
+            elif fire:
                 r = {"index": len(rescues), "at_step": len(steps), "reason": reason, "cloud_steps": 0}
                 rescues.append(r)
                 for k in range(cfg.takeover_steps):
@@ -87,7 +101,11 @@ def run_episode(
         "n_local_steps": sum(s.actor == "local" for s in steps),
         "n_cloud_steps": sum(s.actor == "cloud" for s in steps),
         "n_rescues": len(rescues),
+        "n_blocked_firings": len(blocked),
         "decision_points": decision_points,
         "rescues": rescues,
+        "blocked_firings": blocked,
+        # value -> placeholder, kept on the device; used only to measure what placeholders let the cloud link
+        "placeholder_table": dict(ctx.table.to_ph),
         "steps": [asdict(s) for s in steps],
     }

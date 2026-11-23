@@ -10,3 +10,5 @@ Do not put real company data in this repository.
   Every other secret in the room counts as a bystander for that task.
 - `glossary.json` is the local organisation's own list of names it treats as sensitive
   (client list, staff, partners). The redacting packets use it; it is not the secret labels.
+- `attacks.json` lists the files an outsider could plausibly write text into (the injection vectors
+  used by `codeblue/attacks.py`), with the channel that justifies each one.

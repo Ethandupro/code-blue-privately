@@ -1,9 +1,9 @@
-# Template for a real run: local model on vLLM, cloud model on any OpenAI-compatible API.
+# Template for the FINAL runs: local 9B on vLLM, the frontier cloud model on any OpenAI-compatible API.
 # Costs money. Put the key in an environment variable, never in this file.
 [local]
 kind = "openai"
 base_url = "http://localhost:8000/v1"
-model = "google/gemma-4-26b-it"          # or Qwen/Qwen3.5-9B for the small-model arm
+model = "Qwen/Qwen3.5-9B"               # the one local model in the main study
 temperature = 0.2
 max_tokens = 768
 # extra_body = { chat_template_kwargs = { enable_thinking = false } }   # Qwen3-style models
@@ -19,13 +19,14 @@ max_tokens = 1024
 [experiment]
 data_room = "../data_rooms/harbourline"
 tasks = ["all"]
-packets = ["P0", "P1", "P2", "P3", "P4"]
-triggers = ["selfcheck", "random"]
-include_cloud_only = true
+packets = ["P0", "P3"]        # the main comparison (local-only is added automatically)
+triggers = ["selfcheck"]
+include_local_only = true
+attacks = ["none", "stuck_and_stuff"]   # clean rooms + the injection stress test (part 3 of the claim)
+attack_placement = "vectors"
 seeds = [0, 1, 2]
 detector = "regex"
 takeover_steps = 2
-max_rescues = 3
-cooldown = 2
-random_rate = 0.25
+max_steps = 12
+# No rescue cap or cooldown: rescues are measured. For a capped sensitivity run: max_rescues = 3, cooldown = 2.
 out_dir = "runs"

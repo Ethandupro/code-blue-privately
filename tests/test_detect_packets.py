@@ -1,8 +1,8 @@
 from codeblue.agent import Step
 from codeblue.detect import LLMDetector, OracleDetector, RegexDetector
 from codeblue.llm import MockLocalModel
-from codeblue.packets import (P0FullHistory, P1Brief, P2Blanked, P2hBlankedHistory, P3hPlaceholderHistory,
-                              P3Placeholders, P4StructureOnly, RescueContext)
+from codeblue.optional.packets_extra import P2Blanked, P2hBlankedHistory, P3hPlaceholderHistory, P4StructureOnly
+from codeblue.packets import P0FullHistory, P1Brief, P3Placeholders, RescueContext
 
 MEMO = "memos/2026-11-board-prep.md"
 

@@ -1,24 +1,19 @@
 """Rescue packets: what the cloud model is shown when the local agent asks for help.
 
-P0  full history       the local agent's full context, verbatim (EC2-Bench-style baseline)
-P1  brief              a handoff note written by the LOCAL model, plus the goal
-P2  blanked brief      the P1 brief with detected sensitive spans replaced by [REDACTED]
-P3  placeholder brief  the P1 brief with consistent typed placeholders (<NAME_1>, <MONEY_2>, ...).
-                       The mapping stays on the device; placeholders in the cloud's reply are swapped
-                       back locally before the action runs. Main method (H1).
-P4  structure only     task category, tool list and an action skeleton (no content at all)
+The main study compares two packets:
+P0  full history       the local agent's full context, verbatim (what EC2-Bench measures)
+P3  placeholder brief  a handoff note written by the LOCAL model, with sensitive spans replaced by consistent
+                       typed placeholders (<NAME_1>, <MONEY_2>, ...). The mapping stays on the device;
+                       placeholders in the cloud's reply are swapped back locally before the action runs.
+P1  brief              the same note without masking. P3 is built from it; run it only as a diagnostic
+                       (does the cut come from summarising or from masking?).
 
-Ablations (same masking applied to the full history instead of the brief):
-P2h blanked history    P0 with [REDACTED]
-P3h placeholder history P0 with placeholders
-So P0 -> P1 isolates summarising, P1 -> P3 isolates masking, and P0 -> P3h checks masking without a brief.
-
-Add a new packet by subclassing PacketBuilder and registering it in BUILDERS.
+Parked packets (P2 blanked, P4 structure only, P2h/P3h ablations) live in codeblue/optional/packets_extra.py
+and still load by name. Add a new packet by subclassing PacketBuilder and registering it in BUILDERS.
 """
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -164,18 +159,6 @@ class P1Brief(PacketBuilder):
         return Packet(self.name, self._messages(_brief_body(task, brief)), info={"brief": brief})
 
 
-class P2Blanked(PacketBuilder):
-    """The P1 brief, blanked (the proposal's P2)."""
-
-    name = "P2"
-    MASK = "[REDACTED]"
-
-    def build(self, task, steps, ctx):
-        brief = _local_brief(task, steps, ctx)
-        body, n = _blank(_brief_body(task, brief), ctx)
-        return Packet(self.name, self._messages(body), info={"n_spans": n, "brief": brief})
-
-
 class P3Placeholders(PacketBuilder):
     """The P1 brief with placeholders (the proposal's P3, main method)."""
 
@@ -187,51 +170,12 @@ class P3Placeholders(PacketBuilder):
         return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": n, "brief": brief})
 
 
-class P2hBlankedHistory(PacketBuilder):
-    """Ablation: the full history (P0), blanked."""
-
-    name = "P2h"
-
-    def build(self, task, steps, ctx):
-        body, n = _blank(self._full_body(task, steps, ctx), ctx)
-        return Packet(self.name, self._messages(body), info={"n_spans": n})
-
-
-class P3hPlaceholderHistory(PacketBuilder):
-    """Ablation: the full history (P0) with placeholders."""
-
-    name = "P3h"
-
-    def build(self, task, steps, ctx):
-        body, n = _placeholder(self._full_body(task, steps, ctx), ctx)
-        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": n})
-
-
-class P4StructureOnly(PacketBuilder):
-    name = "P4"
-
-    def build(self, task, steps, ctx):
-        lines = []
-        for s in steps:
-            arg_shape = {k: f"<{type(v).__name__}, {len(str(v))} chars>" for k, v in s.action.get("args", {}).items()}
-            status = "error" if s.error else "ok"
-            lines.append(f"[{s.index}] {s.actor}: {s.action.get('tool')}({json.dumps(arg_shape)}) -> "
-                         f"{status}, {len(s.observation)} chars")
-        body = (
-            f"TASK CATEGORY: {task.category or 'unspecified'}\n"
-            "The goal and all file contents are withheld. Only the shape of the agent's actions is shown.\n\n"
-            "ACTION SKELETON:\n" + ("\n".join(lines) or "(no steps yet)") + "\n\nGive the next action."
-        )
-        return Packet(self.name, self._messages(body))
-
-
-BUILDERS: dict[str, type[PacketBuilder]] = {
-    b.name: b for b in (P0FullHistory, P1Brief, P2Blanked, P3Placeholders, P4StructureOnly,
-                         P2hBlankedHistory, P3hPlaceholderHistory)
-}
+BUILDERS: dict[str, type[PacketBuilder]] = {b.name: b for b in (P0FullHistory, P1Brief, P3Placeholders)}
 
 
 def make_builder(name: str) -> PacketBuilder:
+    if name not in BUILDERS:
+        import codeblue.optional.packets_extra  # noqa: F401  registers P2, P4, P2h, P3h
     try:
         return BUILDERS[name]()
     except KeyError:
