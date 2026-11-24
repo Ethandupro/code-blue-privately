@@ -98,6 +98,10 @@ def ping_local(local: dict, timeout: float = 60) -> dict:
             "and the server up on the VM (scripts/azure/serve_9b.sh)?"
         ) from e
     models = [m.get("id") for m in listing.get("data", [])]
+    if local["model"] not in models:
+        # Don't send a completion: a server for another model answers it with HTTP 404 (e.g. someone else's
+        # vLLM already on this port). The caller reports the mismatch.
+        return {"models": models, "model_listed": False, "reply": "", "secs": 0.0}
     client = OpenAICompatModel(
         base_url=base,
         model=local["model"],
@@ -108,6 +112,11 @@ def ping_local(local: dict, timeout: float = 60) -> dict:
         extra_body=local.get("extra_body"),
     )
     t0 = time.time()
-    reply = client.complete([{"role": "user", "content": "Reply with exactly: OK READY"}], "ping")
-    return {"models": models, "model_listed": local["model"] in models, "reply": reply.strip(),
+    try:
+        reply = client.complete([{"role": "user", "content": "Reply with exactly: OK READY"}], "ping")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"{base}/chat/completions answered HTTP {e.code} for model {local['model']!r}") from e
+    except (urllib.error.URLError, OSError) as e:
+        raise RuntimeError(f"{base}/chat/completions failed ({e})") from e
+    return {"models": models, "model_listed": True, "reply": reply.strip(),
             "secs": round(time.time() - t0, 2)}
