@@ -30,6 +30,7 @@ python -m codeblue ec2 patch /path/to/EC2-Bench        # adds P3 to their delega
 python -m codeblue ec2 labels-template --data-root ./ec2bench-data --out labels/draft.json
 python -m codeblue ec2 inject  --data-root ./ec2bench-data --out ./ec2bench-data-attacked
 python -m codeblue ec2 collect --data-root ./ec2bench-data --out results/pilot --arm P0:none:out/p0 ...
+python -m pip install -e ".[plots]" && python -m codeblue plot results/pilot   # charts in results/pilot/plots/
 ```
 
 Full steps, including the 5-task pilot: [docs/EC2BENCH.md](docs/EC2BENCH.md). Hand labels:
@@ -85,6 +86,9 @@ Each run writes `runs/<timestamp>/`:
 | `local_log.jsonl` | local-model traffic, kept apart and never scanned |
 
 `python -m codeblue claim runs/<a> runs/<b> ...` pools several runs, one per data room.
+`python -m codeblue plot runs/<timestamp>` draws the write-up charts into `plots/` (needs matplotlib,
+`pip install -e ".[plots]"`): the claim with its intervals, leakage and score per condition, the
+leakage curve and leakage against rescue count.
 
 ## How it fits together
 
@@ -189,9 +193,10 @@ stripped either way.
 
 ## Not done yet
 
-* Three more data rooms and six more Harbourline tasks (40 tasks in all).
-* The pilot with real models (9B local, 27B stand-in cloud), paused while GPU 1 is busy.
-* Charts for the write-up.
+* Hand labels in `labels/ec2bench.json` (essentials, attacker-writable files, composites, and which
+  tasks already carry their own injection). The file is empty, so the attacked arms test nothing yet.
+* The 5-task EC2-Bench pilot with real models (9B local, 27B stand-in cloud), paused while GPU 1 is busy.
+  Docker on the VM and the Hugging Face download are not checked yet.
 
 Parked ideas (other packets, triggers, self-check defences against injection, other benchmarks) are listed in
 [optional/README.md](optional/README.md) with the reason each was cut.

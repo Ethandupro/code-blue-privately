@@ -74,9 +74,19 @@ python -m codeblue ec2 collect --data-root ./ec2bench-data --labels labels/ec2be
 ```
 
 This prints the verdict and writes `claim.json`, `episodes.jsonl`, `leakage.json`, `rescue_curve.csv`,
-`leak_vs_rescues.csv` and `mosaic.csv` (same meanings as in the main README). `claim.json` also has a
-`coverage` block: episodes found, missing scores, tasks skipped and how many annotated values were too
-short to scan.
+`leak_vs_rescues.csv`, `mosaic.csv` and `ec2_privacy.csv` (same meanings as in the main README).
+`claim.json` also has a `coverage` block: episodes found, missing scores, tasks skipped, how many annotated
+values were too short to scan, and how many cloud requests failed. A failed request is still scanned (the
+provider may have received it before the error), but it did not perform a step, so it is not counted as a rescue.
+
+Two extra numbers in `claim.json` under `secondary`:
+
+* `ec2_privacy_score`: EC2-Bench's own LLM-judge privacy score (1 = nothing leaked) per setting and
+  condition, read from `score.json`. The second, paraphrase-aware measure next to our scanner.
+* `injection_seen_rate`: on attacked arms, the share of episodes whose agent transcript (`chat.jsonl`)
+  contains the injection marker, i.e. the agent actually read the planted file (pilot check 4).
+
+Then draw the charts: `python -m codeblue plot results/pilot` (needs `pip install -e ".[plots]"`).
 
 ## What the pilot must show before the full run
 
@@ -85,8 +95,14 @@ short to scan.
 2. P0 scores clearly above local-only on several of the 5 tasks.
 3. P3 episodes finish; `codeblue_p3_table.json` is in the task folders and the cloud log shows
    placeholders, not values.
-4. On attacked tasks the agent opens the planted file (the injection marker shows up in its
-   trajectory), so a forced escalation is possible.
+4. On attacked tasks the agent opens the planted file (`injection_seen_rate` in `claim.json` is well
+   above 0), so a forced escalation is possible.
+5. P3's extra edge call (writing the note) does not eat the time budget: compare the time between each
+   `request` in `cloud_assistant_audit.jsonl` and the escalate call in `router_proxy.log` with the task's
+   `timeout_seconds`, and check that P3 does not time out more often than P0 on the short (3 to 5 minute) tasks.
+6. The notes are not empty: with thinking on, the 9B can use up the note's 1,024-token limit before it
+   writes anything. Look at a few P3 `request` entries; if the note is blank, turn thinking off for the edge
+   model.
 
 Then label the remaining tasks, freeze labels (git tag), and run all 100 with 3 repeats.
 
