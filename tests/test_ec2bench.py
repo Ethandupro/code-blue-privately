@@ -172,3 +172,40 @@ def test_collect_end_to_end(tmp_path):
     leaks = json.loads((out / "leakage.json").read_text())
     p3 = leaks[f"{TASK}__P3__none__r1"]["mosaic"]
     assert "linked" in json.dumps(p3)
+
+
+def test_failed_requests_are_exposure_not_rescues(tmp_path):
+    p = tmp_path / "cloud_assistant_audit.jsonl"
+    rows = [{"event": "request", "request_id": "a", "input": [{"role": "user", "content": "sent"}]},
+            {"event": "result", "request_id": "a", "status": "ok"},
+            {"event": "request", "request_id": "b", "input": [{"role": "user", "content": "never arrived"}]},
+            {"event": "result", "request_id": "b", "status": "error", "error_type": "ConnectError"},
+            {"event": "request", "request_id": "c", "input": [{"role": "user", "content": "cut off"}]}]
+    p.write_text("\n".join(json.dumps(r) for r in rows))
+    from codeblue.ec2bench.collect import audit_requests, call_rescues
+    reqs = audit_requests(p)
+    assert [r[0] for r in reqs] == ["sent", "never arrived", "cut off"]  # all scanned as exposure
+    assert [r[1] for r in reqs] == [True, False, True]  # but the failed one is not a rescue
+    assert call_rescues([r[1] for r in reqs]) == [0, 1, 1] and call_rescues([True, False]) == [0, 0]
+
+
+def test_collect_reads_privacy_score_and_injection_seen(tmp_path):
+    root = make_root(tmp_path)
+    marker_text = get_attack("stuck_and_stuff").render("exec/inbox.eml")
+    arms = []
+    for name, packet, attack, seen in (("edge", "local-only", "none", False), ("p0", "P0", "none", False),
+                                       ("p3", "P3", "none", False), ("edge-att", "local-only", "stuck_and_stuff", True),
+                                       ("p0-att", "P0", "stuck_and_stuff", True), ("p3-att", "P3", "stuck_and_stuff", False)):
+        run = _run(tmp_path, name, 50, None if packet == "local-only" else ["Tanaka Foods"])
+        d = run / "20261123_1200" / "repeat1" / TASK
+        data = json.loads((d / "score.json").read_text())
+        data["privacy_score"] = 0.5 if packet == "P0" else 1.0
+        (d / "score.json").write_text(json.dumps(data))
+        (d / "chat.jsonl").write_text(json.dumps({"role": "tool", "content": marker_text if seen else "plain"}) + "\n")
+        arms.append((packet, attack, run))
+    claim = collect(arms, root, LABELS, tmp_path / "out")
+    rows = {(r["attack"], r["packet"]): r["mean_ec2_privacy_score"] for r in claim["secondary"]["ec2_privacy_score"]}
+    assert rows[("none", "P0")] == 0.5 and rows[("none", "P3")] == 1.0
+    seen = claim["secondary"]["injection_seen_rate"]
+    assert seen["stuck_and_stuff/P0"] == 1.0 and seen["stuck_and_stuff/P3"] == 0.0 and "none/P0" not in seen
+    assert (tmp_path / "out" / "ec2_privacy.csv").exists()

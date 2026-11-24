@@ -1,4 +1,4 @@
-"""Command line: run, claim, ping, scan; proxy and matched-rate are optional extras."""
+"""Command line: run, claim, ec2, plot, ping, scan; proxy and matched-rate are optional extras."""
 
 from __future__ import annotations
 
@@ -44,6 +44,9 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--cloud", action="store_true",
                    help="check the [cloud] endpoint instead (e.g. a stand-in cloud model served on the same VM)")
     g.add_argument("--timeout", type=float, default=60)
+
+    pl = sub.add_parser("plot", help="draw the write-up charts from a run or collect folder (needs matplotlib)")
+    pl.add_argument("results", help="folder holding claim.json (from `codeblue run` or `codeblue ec2 collect`)")
 
     s = sub.add_parser("scan", help="scan a cloud log for secrets")
     s.add_argument("log")
@@ -104,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
             print("OK: this ping is not logged; during a run, every [cloud] request goes to cloud_log.jsonl and is scanned")
         else:
             print("OK: local traffic goes to local_log.jsonl only; it is never scanned as cloud exposure")
+    elif a.cmd == "plot":
+        from codeblue.plots import plot_all
+
+        for path in plot_all(a.results):
+            print(f"wrote {path}")
     elif a.cmd == "scan":
         from codeblue.dataroom import load_data_room
         from codeblue.gateway import read_cloud_requests
