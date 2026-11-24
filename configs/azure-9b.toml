@@ -25,12 +25,14 @@ kind = "mock-cloud"
 [experiment]
 data_room = "../data_rooms/harbourline"
 tasks = ["all"]
-packets = ["P0", "P1", "P2", "P3", "P4"]
+packets = ["P0", "P3"]        # the main comparison (local-only is added automatically)
 triggers = ["selfcheck"]
 include_local_only = true
+attacks = ["none", "stuck_and_stuff"]   # clean rooms + the injection stress test (part 3 of the claim)
+attack_placement = "vectors"
 seeds = [0]
 detector = "regex"
 takeover_steps = 2
-max_rescues = 3
-cooldown = 2
+max_steps = 12
+# No rescue cap or cooldown: rescues are measured. For a capped sensitivity run: max_rescues = 3, cooldown = 2.
 out_dir = "runs"

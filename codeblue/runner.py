@@ -1,4 +1,4 @@
-"""Run an experiment grid, then scan the cloud log and write a summary."""
+"""Run an experiment grid, scan the cloud log, write a summary, and test the claim (claim.json)."""
 
 from __future__ import annotations
 
@@ -9,11 +9,15 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
+from codeblue.attacks import apply_attack, exposure_stats, get_attack
+from codeblue.claim import evaluate_all, print_claim
 from codeblue.config import make_model
+from codeblue.curves import curve_by_rescue, rescue_tables
+from codeblue.mosaic import mosaic_episode, mosaic_table
 from codeblue.endpoints import check_local_section
 from codeblue.dataroom import load_data_room
 from codeblue.detect import make_detector
-from codeblue.gateway import CloudGateway
+from codeblue.gateway import CloudGateway, read_cloud_requests, request_text
 from codeblue.llm import LoggedModel
 from codeblue.loop import LoopConfig, run_episode
 from codeblue.packets import make_builder
@@ -29,6 +33,13 @@ def conditions(exp: dict) -> list[tuple[str | None, str]]:
     if exp.get("include_cloud_only", False):
         conds.append(("P0", "always"))
     return conds
+
+
+def _cap(v) -> int | None:
+    """max_rescues from config: absent, negative or "none" means no cap."""
+    if v is None or (isinstance(v, str) and v.lower() == "none") or (isinstance(v, int) and v < 0):
+        return None
+    return int(v)
 
 
 def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = False) -> Path:
@@ -51,29 +62,45 @@ def run_experiment(cfg: dict, out_dir: str | Path | None = None, quiet: bool = F
     detector = make_detector(exp.get("detector", "regex"), room, local)
     loop_cfg = LoopConfig(
         takeover_steps=exp.get("takeover_steps", 2),
-        max_rescues=exp.get("max_rescues", 3),
-        cooldown=exp.get("cooldown", 2),
+        max_rescues=_cap(exp.get("max_rescues")),
+        cooldown=exp.get("cooldown", 0),
         max_steps=exp.get("max_steps"),
         max_obs_chars=exp.get("max_obs_chars", 2000),
     )
 
+    # "none" is the clean setting; each attack gets its own copy of the room with the injection planted.
+    placement = exp.get("attack_placement", "vectors")
+    arms = []
+    for name in exp.get("attacks", ["none"]):
+        attack = get_attack(name)
+        arms.append((name, attack, *apply_attack(room, attack, placement)))
+
     episodes = []
     with (out / "episodes.jsonl").open("w", encoding="utf-8") as f:
         for seed in exp.get("seeds", [0]):
-            for packet, trig in conditions(exp):
-                for task in tasks:
-                    ep_id = f"{task.id}__{packet or 'none'}__{trig}__s{seed}"
-                    local.context = {"episode_id": ep_id}
-                    res = run_episode(ep_id, room, task, local, gateway,
-                                      make_builder(packet) if packet else None,
-                                      make_trigger(trig, exp, seed), detector, loop_cfg)
-                    res["seed"] = seed
-                    episodes.append(res)
-                    f.write(json.dumps(res) + "\n")
-                    if not quiet:
-                        print(f"{ep_id:55s} score={res['score']:.2f} rescues={res['n_rescues']}")
+            for attack_name, attack, arm_room, injected in arms:
+                for packet, trig in conditions(exp):
+                    for task in tasks:
+                        ep_id = f"{task.id}__{packet or 'none'}__{trig}__{attack_name}__s{seed}"
+                        local.context = {"episode_id": ep_id}
+                        res = run_episode(ep_id, arm_room, arm_room.tasks[task.id], local, gateway,
+                                          make_builder(packet) if packet else None,
+                                          make_trigger(trig, exp, seed), detector, loop_cfg)
+                        res.update(seed=seed, room=room.name, attack=attack_name, injected_files=injected)
+                        episodes.append(res)
+                        f.write(json.dumps(res) + "\n")
+                        if not quiet:
+                            extra = f" blocked={res['n_blocked_firings']}" if res["n_blocked_firings"] else ""
+                            print(f"{ep_id:68s} score={res['score']:.2f} rescues={res['n_rescues']}{extra}")
 
     summarise(room, out, episodes, quiet=quiet)
+    leaks = json.loads((out / "leakage.json").read_text())
+    claim = evaluate_all(episodes, leaks, exp.get("claim"))
+    claim["secondary"] = {"secret_share_per_extra_rescue": rescue_tables(episodes, leaks)[2],
+                          "mosaic": mosaic_table(episodes, leaks)}
+    (out / "claim.json").write_text(json.dumps(claim, indent=2))
+    if not quiet:
+        print_claim(claim)
     return out
 
 
@@ -84,32 +111,70 @@ def summarise(room, out: Path, episodes: list[dict], quiet: bool = False) -> lis
     for ep in ep_tasks:
         leaks.setdefault(ep, {"n_calls": 0, "chars_sent": 0, "n_essential_leaked": 0, "n_bystander_leaked": 0,
                               "leaked": {}, "cumulative_curve": []})
+    for v in leaks.values():
+        v["n_secrets_total"] = len(room.secrets)
+
+    texts: dict[str, list[str]] = defaultdict(list)
+    call_rescue: dict[str, list[int]] = defaultdict(list)
+    if log.exists():
+        for rec in read_cloud_requests(log):
+            texts[rec.get("episode_id", "unknown")].append(request_text(rec))
+            call_rescue[rec.get("episode_id", "unknown")].append(int(rec.get("rescue", 0)))
+    tables = {e["episode_id"]: e.get("placeholder_table") or {} for e in episodes}
+    for ep, lk in leaks.items():
+        lk["curve_by_rescue"] = curve_by_rescue(lk, call_rescue.get(ep, []))
+        lk["mosaic"] = mosaic_episode(room, texts.get(ep, []), lk, tables.get(ep, {}), call_rescue.get(ep, []))
+    for e in episodes:
+        e.setdefault("attack", "none")
+        e["exposure"] = exposure_stats(get_attack(e["attack"]), e["steps"], texts.get(e["episode_id"], []))
+        leaks[e["episode_id"]]["injection_to_cloud"] = e["exposure"]["n_cloud_calls_with_injection"] > 0
     (out / "leakage.json").write_text(json.dumps(leaks, indent=2))
 
     groups = defaultdict(list)
     for e in episodes:
-        groups[(e["packet"] or "local-only", e["trigger"])].append(e)
+        groups[(e["attack"], e["packet"] or "local-only", e["trigger"])].append(e)
     rows = []
-    for (packet, trig), eps in groups.items():
+    for (attack, packet, trig), eps in groups.items():
         ls = [leaks[e["episode_id"]] for e in eps]
         rows.append({
-            "packet": packet, "trigger": trig, "episodes": len(eps),
+            "attack": attack, "packet": packet, "trigger": trig, "episodes": len(eps),
             "mean_score": round(mean(e["score"] for e in eps), 3),
             "success_rate": round(mean(e["score"] == 1.0 for e in eps), 3),
             "mean_rescues": round(mean(e["n_rescues"] for e in eps), 2),
+            "mean_blocked_firings": round(mean(e.get("n_blocked_firings", 0) for e in eps), 2),
             "mean_cloud_calls": round(mean(l["n_calls"] for l in ls), 2),
             "mean_chars_sent": round(mean(l["chars_sent"] for l in ls), 1),
             "mean_essential_leaked": round(mean(l["n_essential_leaked"] for l in ls), 2),
             "mean_bystander_leaked": round(mean(l["n_bystander_leaked"] for l in ls), 2),
+            "mean_secrets_leaked": round(mean(l["n_essential_leaked"] + l["n_bystander_leaked"] for l in ls), 2),
+            "injection_seen_rate": round(mean(e["exposure"]["injection_seen_by_agent"] for e in eps), 3),
+            "injection_to_cloud_rate": round(mean(e["exposure"]["n_cloud_calls_with_injection"] > 0 for e in eps), 3),
         })
-    with (out / "summary.csv").open("w", newline="") as f:
+    _write_csv(out / "summary.csv", rows)
+    curve_rows, count_rows, _ = rescue_tables(episodes, leaks)
+    if curve_rows:
+        _write_csv(out / "rescue_curve.csv", curve_rows)
+        _write_csv(out / "leak_vs_rescues.csv", count_rows)
+    mosaic_rows = mosaic_table(episodes, leaks)
+    if mosaic_rows:
+        _write_csv(out / "mosaic.csv", mosaic_rows)
+    if not quiet:
+        print_table(rows)
+        if curve_rows:
+            print("\nsecrets leaked so far after the nth rescue (secondary; see rescue_curve.csv):")
+            print_table(curve_rows)
+        if mosaic_rows:
+            print("\nsecrets pieced together across calls (secondary; see mosaic.csv):")
+            print_table(mosaic_rows)
+        print(f"\nwrote {out}/summary.csv, leakage.json, episodes.jsonl, cloud_log.jsonl, local_log.jsonl")
+    return rows
+
+
+def _write_csv(path: Path, rows: list[dict]) -> None:
+    with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    if not quiet:
-        print_table(rows)
-        print(f"\nwrote {out}/summary.csv, leakage.json, episodes.jsonl, cloud_log.jsonl, local_log.jsonl")
-    return rows
 
 
 def print_table(rows: list[dict]) -> None:
@@ -118,14 +183,3 @@ def print_table(rows: list[dict]) -> None:
     print("\n" + "  ".join(c.ljust(widths[c]) for c in cols))
     for r in rows:
         print("  ".join(str(r[c]).ljust(widths[c]) for c in cols))
-
-
-def matched_rate(episodes_path: str | Path, trigger: str = "selfcheck") -> float:
-    """Rescues per decision point in the given trigger's episodes: the rate to give the random control."""
-    rescues = points = 0
-    for line in Path(episodes_path).read_text().splitlines():
-        e = json.loads(line)
-        if e["trigger"] == trigger:
-            rescues += e["n_rescues"]
-            points += e["decision_points"]
-    return rescues / points if points else 0.0

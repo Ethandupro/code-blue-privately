@@ -8,20 +8,21 @@ from codeblue.gateway import CloudGateway, read_cloud_requests
 from codeblue.llm import MockCloudModel, MockLocalModel
 from codeblue.loop import LoopConfig, run_episode
 from codeblue.packets import make_builder
-from codeblue.runner import matched_rate, run_experiment
+from codeblue.optional.triggers_extra import RandomTrigger, matched_rate
+from codeblue.runner import run_experiment
 from codeblue.scan import scan_log
-from codeblue.triggers import NeverTrigger, RandomTrigger, SelfCheckTrigger
+from codeblue.triggers import NeverTrigger, SelfCheckTrigger
 
 from .conftest import ROOT
 
 
-def _run(room, tmp_path, task_id, packet, trigger):
+def _run(room, tmp_path, task_id, packet, trigger, cfg=None):
     tasks = list(room.tasks.values())
     log = tmp_path / "cloud.jsonl"
     gw = CloudGateway(MockCloudModel(tasks), log)
     ep = f"{task_id}-{packet}"
     res = run_episode(ep, room, room.tasks[task_id], MockLocalModel(tasks), gw,
-                      make_builder(packet) if packet else None, trigger, RegexDetector(room.glossary), LoopConfig())
+                      make_builder(packet) if packet else None, trigger, RegexDetector(room.glossary), cfg or LoopConfig())
     leaks = scan_log(room, log, {ep: task_id})[ep] if log.exists() else None
     return res, leaks
 
@@ -54,9 +55,16 @@ def test_p2_breaks_and_p4_fails(room, tmp_path):
     assert p4["score"] == 0.0 and l4["leaked"] == {}
 
 
-def test_max_rescues_cap(room, tmp_path):
-    res, _ = _run(room, tmp_path, "t3_restructuring_checklist", "P4", SelfCheckTrigger())
-    assert res["n_rescues"] <= 3
+def test_no_cap_by_default_and_caps_log_blocked_firings(room, tmp_path):
+    # P4 can never help, so the agent keeps asking. With no cap, every request becomes a rescue.
+    free, _ = _run(room, tmp_path / "free", "t3_restructuring_checklist", "P4", SelfCheckTrigger())
+    assert free["n_rescues"] > 3 and free["n_blocked_firings"] == 0
+    capped, _ = _run(room, tmp_path / "cap", "t3_restructuring_checklist", "P4", SelfCheckTrigger(),
+                     LoopConfig(max_rescues=3, cooldown=2))
+    assert capped["n_rescues"] <= 3 < free["n_rescues"]
+    # The cap does not hide demand: blocked firings are recorded with what blocked them.
+    assert capped["n_blocked_firings"] > 0
+    assert {b["blocked_by"] for b in capped["blocked_firings"]} <= {"max_rescues", "cooldown"}
 
 
 def test_random_trigger_is_deterministic(room, tmp_path):
@@ -87,5 +95,9 @@ def test_full_mock_experiment(tmp_path):
     purposes = {json.loads(l).get("purpose") for l in (out / "local_log.jsonl").read_text().splitlines()}
     assert "selfcheck" in purposes
     assert all("purpose" not in json.loads(l) for l in (out / "cloud_log.jsonl").read_text().splitlines())
+
+
+def test_parked_full_grid_still_runs(tmp_path):
+    out = run_experiment(load_config(ROOT / "configs" / "optional" / "mock-full-grid.toml"), tmp_path / "run", quiet=True)
     rate = matched_rate(out / "episodes.jsonl")
     assert 0 < rate < 1

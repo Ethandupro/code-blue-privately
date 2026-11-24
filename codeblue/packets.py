@@ -1,19 +1,19 @@
 """Rescue packets: what the cloud model is shown when the local agent asks for help.
 
-P0  full history       the local agent's full context, verbatim (EC2-Bench-style baseline)
-P1  brief              a handoff note written by the LOCAL model, plus the goal
-P2  blanked            full history with detected sensitive spans replaced by [REDACTED]
-P3  placeholders       full history with consistent typed placeholders (<NAME_1>, <MONEY_2>, ...).
-                       The mapping stays on the device; placeholders in the cloud's reply are swapped
-                       back locally before the action runs.
-P4  structure only     task category, tool list and an action skeleton (no content at all)
+The main study compares two packets:
+P0  full history       the local agent's full context, verbatim (what EC2-Bench measures)
+P3  placeholder brief  a handoff note written by the LOCAL model, with sensitive spans replaced by consistent
+                       typed placeholders (<NAME_1>, <MONEY_2>, ...). The mapping stays on the device;
+                       placeholders in the cloud's reply are swapped back locally before the action runs.
+P1  brief              the same note without masking. P3 is built from it; run it only as a diagnostic
+                       (does the cut come from summarising or from masking?).
 
-Add a new packet by subclassing PacketBuilder and registering it in BUILDERS.
+Parked packets (P2 blanked, P4 structure only, P2h/P3h ablations) live in codeblue/optional/packets_extra.py
+and still load by name. Add a new packet by subclassing PacketBuilder and registering it in BUILDERS.
 """
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -127,66 +127,55 @@ class P0FullHistory(PacketBuilder):
         return Packet(self.name, self._messages(self._full_body(task, steps, ctx)))
 
 
+def _local_brief(task: Task, steps: list[Step], ctx: RescueContext) -> str:
+    msgs = local_messages(task, steps, ctx.max_obs_chars)
+    msgs[-1] = {"role": "user", "content": msgs[-1]["content"].rsplit("\n\nWhat is your next action?", 1)[0]
+                + "\n\n" + BRIEF_PROMPT}
+    return strip_thinking(ctx.local_model.complete(msgs, "brief"))
+
+
+def _brief_body(task: Task, brief: str) -> str:
+    return f"GOAL: {task.goal}\n\nHANDOFF NOTE FROM THE STUCK AGENT:\n{brief}\n\nGive the next action."
+
+
+def _blank(body: str, ctx: RescueContext) -> tuple[str, int]:
+    spans = ctx.detector.find(body)
+    return replace_values(body, {s.text: "[REDACTED]" for s in spans}), len(spans)
+
+
+def _placeholder(body: str, ctx: RescueContext) -> tuple[str, int]:
+    spans = ctx.detector.find(body)
+    for s in spans:
+        ctx.table.placeholder(s.text, s.category)
+    # Also replace values seen in earlier rescues so placeholders stay consistent.
+    return replace_values(body, dict(ctx.table.to_ph)), len(spans)
+
+
 class P1Brief(PacketBuilder):
     name = "P1"
 
     def build(self, task, steps, ctx):
-        msgs = local_messages(task, steps, ctx.max_obs_chars)
-        msgs[-1] = {"role": "user", "content": msgs[-1]["content"].rsplit("\n\nWhat is your next action?", 1)[0]
-                    + "\n\n" + BRIEF_PROMPT}
-        brief = strip_thinking(ctx.local_model.complete(msgs, "brief"))
-        body = f"GOAL: {task.goal}\n\nHANDOFF NOTE FROM THE STUCK AGENT:\n{brief}\n\nGive the next action."
-        return Packet(self.name, self._messages(body), info={"brief": brief})
-
-
-class P2Blanked(PacketBuilder):
-    name = "P2"
-    MASK = "[REDACTED]"
-
-    def build(self, task, steps, ctx):
-        body = self._full_body(task, steps, ctx)
-        spans = ctx.detector.find(body)
-        body = replace_values(body, {s.text: self.MASK for s in spans})
-        return Packet(self.name, self._messages(body), info={"n_spans": len(spans)})
+        brief = _local_brief(task, steps, ctx)
+        return Packet(self.name, self._messages(_brief_body(task, brief)), info={"brief": brief})
 
 
 class P3Placeholders(PacketBuilder):
+    """The P1 brief with placeholders (the proposal's P3, main method)."""
+
     name = "P3"
 
     def build(self, task, steps, ctx):
-        body = self._full_body(task, steps, ctx)
-        spans = ctx.detector.find(body)
-        for s in spans:
-            ctx.table.placeholder(s.text, s.category)
-        # Also replace values seen in earlier rescues so placeholders stay consistent.
-        body = replace_values(body, dict(ctx.table.to_ph))
-        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": len(spans)})
+        brief = _local_brief(task, steps, ctx)
+        body, n = _placeholder(_brief_body(task, brief), ctx)
+        return Packet(self.name, self._messages(body), table=ctx.table, info={"n_spans": n, "brief": brief})
 
 
-class P4StructureOnly(PacketBuilder):
-    name = "P4"
-
-    def build(self, task, steps, ctx):
-        lines = []
-        for s in steps:
-            arg_shape = {k: f"<{type(v).__name__}, {len(str(v))} chars>" for k, v in s.action.get("args", {}).items()}
-            status = "error" if s.error else "ok"
-            lines.append(f"[{s.index}] {s.actor}: {s.action.get('tool')}({json.dumps(arg_shape)}) -> "
-                         f"{status}, {len(s.observation)} chars")
-        body = (
-            f"TASK CATEGORY: {task.category or 'unspecified'}\n"
-            "The goal and all file contents are withheld. Only the shape of the agent's actions is shown.\n\n"
-            "ACTION SKELETON:\n" + ("\n".join(lines) or "(no steps yet)") + "\n\nGive the next action."
-        )
-        return Packet(self.name, self._messages(body))
-
-
-BUILDERS: dict[str, type[PacketBuilder]] = {
-    b.name: b for b in (P0FullHistory, P1Brief, P2Blanked, P3Placeholders, P4StructureOnly)
-}
+BUILDERS: dict[str, type[PacketBuilder]] = {b.name: b for b in (P0FullHistory, P1Brief, P3Placeholders)}
 
 
 def make_builder(name: str) -> PacketBuilder:
+    if name not in BUILDERS:
+        import codeblue.optional.packets_extra  # noqa: F401  registers P2, P4, P2h, P3h
     try:
         return BUILDERS[name]()
     except KeyError:

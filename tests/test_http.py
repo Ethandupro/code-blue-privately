@@ -6,7 +6,7 @@ import pytest
 
 from codeblue.gateway import read_cloud_requests
 from codeblue.llm import OpenAICompatModel
-from codeblue.proxy_server import make_server
+from codeblue.optional.proxy_server import make_server
 
 
 class FakeUpstream(BaseHTTPRequestHandler):

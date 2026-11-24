@@ -1,19 +1,17 @@
 """When does the local agent ask the cloud for help?
 
-- selfcheck: AgentCollab-style. The local model judges its own progress after each step
-  (PROGRESSING / STUCK), backed by simple stall signals (repeated action, consecutive errors).
-- random:    control condition. Escalate with fixed probability per step; set the rate to match the
-             self-check condition's observed rate (see `codeblue matched-rate`).
-- never:     local-only baseline.
-- always:    cloud-only baseline (every step goes to the cloud).
-Caps (max rescues, cooldown) are applied by the loop, identically for every trigger.
+- selfcheck: AgentCollab-style, used for every rescue in the main study. The local model judges its own
+  progress after each step (PROGRESSING / STUCK), backed by simple stall signals (repeated action,
+  consecutive errors).
+- never:     local-only baseline (the agent with no rescue at all).
+Parked triggers (random control, always = cloud-only) are in codeblue/optional/triggers_extra.py.
+Optional caps (max rescues, cooldown) are applied by the loop, identically for every trigger, and every
+firing they block is logged.
 """
 
 from __future__ import annotations
 
 import json
-import random
-import zlib
 
 from codeblue.agent import SELFCHECK_PROMPT, Step, local_messages, strip_thinking
 
@@ -38,14 +36,6 @@ class NeverTrigger(Trigger):
 
     def check(self, task, steps, local_model):
         return False, ""
-
-
-class AlwaysTrigger(Trigger):
-    name = "always"
-    capped = False
-
-    def check(self, task, steps, local_model):
-        return True, "always"
 
 
 class SelfCheckTrigger(Trigger):
@@ -76,32 +66,14 @@ class SelfCheckTrigger(Trigger):
         return False, ""
 
 
-class RandomTrigger(Trigger):
-    name = "random"
-
-    def __init__(self, rate: float = 0.2, seed: int = 0):
-        self.rate = rate
-        self.seed = seed
-        self.rng = random.Random(seed)
-
-    def reset(self, episode_seed: str) -> None:
-        # Deterministic per (seed, episode) and independent of run order.
-        self.rng = random.Random(zlib.crc32(f"{self.seed}:{episode_seed}".encode()))
-
-    def check(self, task, steps, local_model):
-        if not steps:
-            return False, ""
-        return (self.rng.random() < self.rate), f"random p={self.rate}"
-
-
 def make_trigger(name: str, cfg: dict | None = None, seed: int = 0) -> Trigger:
     cfg = cfg or {}
     if name == "selfcheck":
         return SelfCheckTrigger(cfg.get("repeat_threshold", 2), cfg.get("error_threshold", 2), cfg.get("ask_model", True))
-    if name == "random":
-        return RandomTrigger(cfg.get("random_rate", 0.2), seed)
     if name == "never":
         return NeverTrigger()
-    if name == "always":
-        return AlwaysTrigger()
+    if name in ("random", "always"):
+        from codeblue.optional.triggers_extra import make_extra_trigger
+
+        return make_extra_trigger(name, cfg, seed)
     raise ValueError(f"unknown trigger {name!r}")
